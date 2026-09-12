@@ -333,7 +333,15 @@ ipcMain.handle('dialog:export-png', async (_event, { dataUrl, defaultPath }) => 
 // engines' own output, so this spawns it and reads its result back.
 // ---------------------------------------------------------------------------
 
-const OPTIMIZER_DIR = path.join(__dirname, '..', '..', 'optimizer');
+// In dev, optimizer/ sits alongside src/ in the repo. In a packaged build
+// it's NOT inside the app's asar (Python needs a real file on disk to spawn,
+// and this run also needs to WRITE its own output next to it) — instead
+// it's copied in as an extraResource (see package.json's "build" config),
+// landing at <resources>/optimizer next to the app bundle rather than under
+// __dirname's asar path.
+const OPTIMIZER_DIR = app.isPackaged
+  ? path.join(process.resourcesPath, 'optimizer')
+  : path.join(__dirname, '..', '..', 'optimizer');
 const OPTIMIZER_RUNS_DIR = path.join(OPTIMIZER_DIR, 'data', 'optimize-runs');
 // Bounds for the "Training samples" field in the editor's Crowd Simulation
 // panel (run_pipeline.py's CROWDSENSE_N) — clamped here so a malformed or

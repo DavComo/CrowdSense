@@ -4,7 +4,7 @@
     "name": "Sample Club Floor",
     "unit": "m",
     "createdAt": "2026-09-11T00:00:00.000Z",
-    "updatedAt": "2026-09-12T18:01:21.749Z"
+    "updatedAt": "2026-09-12T18:59:22.380Z"
   },
   "scale": {
     "pixelsPerUnit": 20
@@ -116,7 +116,7 @@
   ],
   "points": [
     {
-      "throughput": 200,
+      "throughput": 500,
       "id": "point_main_entrance",
       "type": "entrance",
       "name": "Main Entrance",

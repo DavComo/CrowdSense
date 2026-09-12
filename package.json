@@ -8,9 +8,60 @@
   "private": true,
   "scripts": {
     "start": "electron .",
-    "dev": "electron . --dev"
+    "dev": "electron . --dev",
+    "package": "electron-builder --dir",
+    "dist": "electron-builder"
   },
   "devDependencies": {
-    "electron": "^32.0.0"
+    "electron": "^32.0.0",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "com.crowdsense.app",
+    "productName": "CrowdSense",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "package.json",
+      "!**/*.map"
+    ],
+    "extraResources": [
+      {
+        "from": "optimizer",
+        "to": "optimizer",
+        "filter": [
+          "**/*",
+          "!__pycache__",
+          "!**/__pycache__/**",
+          "!data/**",
+          "!*.png",
+          "!*.gif",
+          "!legacy_gate_model/**"
+        ]
+      },
+      {
+        "from": "examples",
+        "to": "examples"
+      }
+    ],
+    "mac": {
+      "target": [
+        "dir"
+      ],
+      "category": "public.app-category.utilities"
+    },
+    "win": {
+      "target": [
+        "dir"
+      ]
+    },
+    "linux": {
+      "target": [
+        "dir"
+      ],
+      "category": "Utility"
+    }
   }
 }
