@@ -47,7 +47,7 @@ class Surrogate:
         y, _ = self._forward(X)
         return y.ravel()
 
-    def fit(self, X, y, epochs=800, lr=0.05, verbose=True):
+    def fit(self, X, y, epochs=800, lr=0.05, verbose=True, weight_decay=1e-4):
         y = y.reshape(-1, 1)
         self.x_mean, self.x_std = X.mean(0), X.std(0) + 1e-8
         self.y_mean, self.y_std = y.mean(), y.std() + 1e-8
@@ -67,9 +67,13 @@ class Surrogate:
             dz1 = da1 * (1 - a1 ** 2)
             dW1 = Xn.T @ dz1 / n;               db1 = dz1.mean(0)
 
-            for p, g in [(self.W3,dW3),(self.b3,db3),(self.W2,dW2),
-                         (self.b2,db2),(self.W1,dW1),(self.b1,db1)]:
-                p -= lr * g
+            # weight decay on the weight matrices only (not biases): without
+            # it this net happily extrapolates a physically impossible
+            # negative cost far outside the training data, and the search
+            # walks straight to that fantasy.
+            for p, g, decay in [(self.W3,dW3,True),(self.b3,db3,False),(self.W2,dW2,True),
+                                (self.b2,db2,False),(self.W1,dW1,True),(self.b1,db1,False)]:
+                p -= lr * (g + weight_decay * p if decay else g)
 
             if verbose and ep % 200 == 0:
                 print(f"    epoch {ep:4d}   train MSE {loss:.4f}")

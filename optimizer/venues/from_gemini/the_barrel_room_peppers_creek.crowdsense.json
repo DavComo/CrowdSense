@@ -1,0 +1,115 @@
+{
+  "version": 1,
+  "meta": {
+    "name": "The Barrel Room - Peppers Creek",
+    "unit": "m",
+    "createdAt": "2026-09-11T22:41:33.000Z",
+    "updatedAt": "2026-09-11T22:41:33.000Z"
+  },
+  "scale": {
+    "pixelsPerUnit": 20
+  },
+  "background": null,
+  "source": {
+    "name": "The Barrel Room - Peppers Creek",
+    "url": "https://www.infoguides.com.au/wp-content/uploads/2019/12/InfoGuides_The-Barrel-Room-Peppers-Creek-Weddings_Brochure.pdf",
+    "note": "floor plan approximated from a publicly posted booking/listing page, not an architectural drawing"
+  },
+  "walls": [
+    {
+      "id": "wall_perimeter",
+      "shape": "line",
+      "points": [
+        {
+          "x": 0,
+          "y": 0
+        },
+        {
+          "x": 12,
+          "y": 0
+        },
+        {
+          "x": 12,
+          "y": 20
+        },
+        {
+          "x": 0,
+          "y": 20
+        },
+        {
+          "x": 0,
+          "y": 0
+        }
+      ],
+      "thickness": 0.3,
+      "color": "#c9cbd4",
+      "movable": false,
+      "extendable": false
+    },
+    {
+      "id": "wall_bar_counter",
+      "shape": "rect",
+      "x": 10,
+      "y": 15,
+      "w": 2,
+      "h": 4,
+      "color": "#c9cbd4",
+      "movable": true,
+      "extendable": false
+    }
+  ],
+  "zones": [
+    {
+      "id": "zone_dance_floor",
+      "type": "custom",
+      "name": "Dance Floor",
+      "shape": "rect",
+      "x": 2,
+      "y": 2,
+      "w": 8,
+      "h": 6,
+      "color": "#e0564f",
+      "capacity": 50,
+      "stickiness": 60,
+      "movable": true,
+      "extendable": true
+    },
+    {
+      "id": "zone_seating",
+      "type": "seating",
+      "name": "Banquet Seating",
+      "shape": "rect",
+      "x": 1,
+      "y": 9,
+      "w": 10,
+      "h": 10,
+      "color": "#8b7fe0",
+      "capacity": 100,
+      "stickiness": 90,
+      "movable": true,
+      "extendable": true
+    }
+  ],
+  "points": [
+    {
+      "id": "point_main_entry",
+      "type": "entrance",
+      "name": "Chapel Entry",
+      "x": 6,
+      "y": 20,
+      "flowRate": 90,
+      "color": "#5bb98c",
+      "movable": false
+    },
+    {
+      "id": "point_exit_side",
+      "type": "emergency-exit",
+      "name": "Vineyard Exit",
+      "x": 0,
+      "y": 10,
+      "flowRate": 90,
+      "color": "#e0564f",
+      "movable": false
+    }
+  ]
+}

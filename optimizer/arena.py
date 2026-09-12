@@ -1,167 +1,640 @@
 """
-arena.py -- turns the club-floor JSON into something you can score and search.
+arena.py -- turns ANY .crowdsense.json into something you can score and search.
 
 KEY IDEA: `movable: true` marks a decision variable. Everything else is a wall
 you cannot touch. This file:
   1. loads the JSON
-  2. packs the movable elements into one flat vector of numbers (what the
-     optimizer/surrogate actually sees)
+  2. walks venue["walls"] / venue["zones"] / venue["points"], collects every
+     element with movable:true, and packs them into one flat vector of
+     numbers (what the optimizer/surrogate actually sees) -- works on any
+     venue, not just one fixture. Bounds default to "stay inside the room's
+     bounding box" (position) and "within ~0.4x-2x of the drawn size" (when
+     extendable:true), with a lightweight overlap-resolution pass so movable
+     furniture doesn't get packed on top of itself.
   3. unpacks that vector back into a legal venue (no overlaps, nothing off
-     the floor, nothing through the stage) -- legal BY CONSTRUCTION, so the
-     optimizer can never propose garbage
-  4. scores a venue with a placeholder physics stand-in (delete `score` once
-     the real simulator exists -- nothing else here changes)
+     the floor) -- legal by construction for containment, best-effort for
+     overlap, so the optimizer can't propose garbage.
+  4. scores a venue with a placeholder physics stand-in (delete/replace once
+     the real simulator exists -- nothing else here changes).
 
-NOTE on scope: this file's pack/unpack currently know the 4 movable elements
-in examples/sample-venue.json by NAME (zone_pit, zone_bar, wall_riser_1,
-wall_divider). It does not yet generalise to an arbitrary .crowdsense.json
-with different movable elements -- that generalisation (walk venue["walls"]
-+ venue["zones"], collect everything with movable:true, build the vector
-dynamically) is the natural next step once this pipeline is trusted.
+NOT JUST EVACUATION: a venue is not only ever mid-evacuation. `score()` runs
+several independent crowd-flow SCENARIOS over the same floor plan and blends
+them, so a layout that's fast to evacuate but crushes people the moment a
+performer takes the stage still scores badly:
+  - "evacuation"     -- everyone in a populated zone rushes to the nearest
+                        exit/emergency-exit at once.
+  - "entrance_surge" -- people streaming in through the entrance(s)
+                        (points[].flowRate people/min) funnel toward every
+                        populated zone, weighted by capacity/stickiness.
+  - "hotspot_rush"   -- if the venue has a `type: "stage"` zone, everyone in
+                        a populated zone surges toward it at once (the
+                        "artist walks out" moment).
+Each scenario reuses the same Dijkstra + flow-accumulation + corridor-width
+pressure engine, just with different sources/sinks. Add a scenario by adding
+one more (sources, sinks) pair in `score()`.
+
+Only rect/circle/line/polygon shapes are handled (the whole format). Walls
+default to movable:false/extendable:false, zones to movable:true/
+extendable:true, points to movable:false, per docs/VENUE_FORMAT.md.
 """
 
+import copy
 import json
-import numpy as np
 import heapq
+import numpy as np
 
-CELL = 0.4          # metres per grid cell
-WALK_SPEED = 1.3     # m/s
+CELL = 0.4            # metres per grid cell
+WALK_SPEED = 1.3       # m/s
+SURGE_MINUTES = 5.0    # entrance_surge scenario: minutes of arrivals modeled
+DEFAULT_ENTRANCE_FLOW = 60.0   # people/min, used if an entrance has no flowRate
 
-# --- 1. load -----------------------------------------------------------
+# --- 1. load -------------------------------------------------------------
 def load(path):
     with open(path) as f:
         return json.load(f)
 
-# --- 2/3. pack + unpack --------------------------------------------------
-# The vector is 14 numbers. Ranges are chosen so ANY vector in [0,1]^14
-# decodes to a legal floor plan -- pit stays left of the stage's edge,
-# bar/riser stay right of it and don't overlap each other, and the divider
-# is clamped to sit between them. This is the same trick as a perimeter
-# door position: make illegal designs simply inexpressible.
 
-DIM = 14
+# --- shared geometry helpers ----------------------------------------------
+def lerp(t, lo, hi):
+    return lo + t * (hi - lo)
 
-def unpack(u, venue):
-    """u: 14 numbers in [0,1]. Returns a dict of concrete shapes."""
-    u = np.clip(np.asarray(u, dtype=float), 0.0, 1.0)
+def inv(lo, hi, v):
+    return 0.0 if hi <= lo else (v - lo) / (hi - lo)
 
-    def lerp(i, lo, hi):
-        return lo + u[i] * (hi - lo)
+def _bbox_of_points(points):
+    xs = [p["x"] for p in points]; ys = [p["y"] for p in points]
+    return min(xs), min(ys), max(xs), max(ys)
 
-    pit_w = lerp(0, 6, 16);  pit_h = lerp(1, 6, 12)
-    pit_x = lerp(2, 0, 16 - pit_w);  pit_y = lerp(3, 8, 20 - pit_h)
+def _shape_bbox(geo):
+    s = geo["shape"]
+    if s == "rect":
+        return geo["x"], geo["y"], geo["x"] + geo["w"], geo["y"] + geo["h"]
+    if s == "circle":
+        return geo["cx"] - geo["r"], geo["cy"] - geo["r"], geo["cx"] + geo["r"], geo["cy"] + geo["r"]
+    if s in ("line", "polygon"):
+        return _bbox_of_points(geo["points"])
+    raise ValueError(f"unknown shape {s!r}")
 
-    bar_w = lerp(4, 3, 8);   bar_h = lerp(5, 2, 6)
-    bar_x = lerp(6, 17, 30 - bar_w);  bar_y = lerp(7, 0, 10 - bar_h)
+def _wall_geo(w):
+    shape = w.get("shape", "line")   # no shape field predates it -- treat as line
+    if shape == "rect":
+        return {"shape": "rect", "x": w["x"], "y": w["y"], "w": w["w"], "h": w["h"]}
+    if shape == "pillar":
+        return {"shape": "circle", "cx": w["cx"], "cy": w["cy"], "r": w["r"]}
+    return {"shape": "line", "points": [dict(p) for p in w["points"]],
+            "thickness": w.get("thickness", 0.25)}
 
-    ris_w = lerp(8, 2, 8);   ris_h = lerp(9, 1, 4)
-    ris_x = lerp(10, 17, 30 - ris_w);  ris_y = lerp(11, 10, 20 - ris_h)
+def _zone_geo(z):
+    shape = z.get("shape", "rect")
+    if shape == "rect":
+        return {"shape": "rect", "x": z["x"], "y": z["y"], "w": z["w"], "h": z["h"]}
+    if shape == "circle":
+        return {"shape": "circle", "cx": z["cx"], "cy": z["cy"], "r": z["r"]}
+    return {"shape": "polygon", "points": [dict(p) for p in z["points"]]}
 
-    div_y2 = lerp(12, 2, 19)
-    div_x  = min(lerp(13, 16.2, 29), bar_x - 0.5, ris_x - 0.5)
-    div_x  = max(div_x, 16.2)
+def _point_geo(p):
+    return {"shape": "point", "x": p["x"], "y": p["y"]}
 
+def _translate_geo(geo, dx, dy):
+    if dx == 0 and dy == 0:
+        return
+    if geo["shape"] == "rect":
+        geo["x"] += dx; geo["y"] += dy
+    elif geo["shape"] == "circle":
+        geo["cx"] += dx; geo["cy"] += dy
+    elif geo["shape"] in ("line", "polygon"):
+        for p in geo["points"]:
+            p["x"] += dx; p["y"] += dy
+    elif geo["shape"] == "point":
+        geo["x"] += dx; geo["y"] += dy
+
+def _classify_zone(z):
+    """obstacle: physically blocks movement. populated: a crowd source/sink.
+    inert: floor space with nobody assigned (decorative), walkable."""
+    if z.get("type") in ("stage", "restricted"):
+        return "obstacle"
+    if (z.get("capacity") or 0) > 0:
+        return "populated"
+    return "inert"
+
+def _shell_bounds(venue):
+    """Where movable elements may be PLACED: inside the fixed walls. This is
+    the bbox of the immovable walls, pulled in by their thickness (or of
+    everything drawn, if nothing is locked). NOT the padded raster extent --
+    using that let the optimizer park the bar half outside the perimeter."""
+    pts, thick = [], 0.0
+    for w in venue.get("walls", []):
+        if w.get("movable", False):
+            continue
+        x0, y0, x1, y1 = _shape_bbox(_wall_geo(w)); pts += [(x0, y0), (x1, y1)]
+        thick = max(thick, w.get("thickness", 0.25) if w.get("shape", "line") == "line" else 0.0)
+    if not pts:
+        rx0, ry0, rx1, ry1 = _room_bbox(venue)
+        return rx0 + 1.0, ry0 + 1.0, rx1 - 1.0, ry1 - 1.0
+    xs = [q[0] for q in pts]; ys = [q[1] for q in pts]
+    m = thick / 2 + 0.05
+    return min(xs) + m, min(ys) + m, max(xs) - m, max(ys) - m
+
+
+def _room_bbox(venue):
+    """Bounding box of everything drawn, padded a little -- the RASTER extent
+    (the simulator's grid). Placement uses _shell_bounds() instead."""
+    pts = []
+    for w in venue.get("walls", []):
+        x0, y0, x1, y1 = _shape_bbox(_wall_geo(w)); pts += [(x0, y0), (x1, y1)]
+    for z in venue.get("zones", []):
+        x0, y0, x1, y1 = _shape_bbox(_zone_geo(z)); pts += [(x0, y0), (x1, y1)]
+    for p in venue.get("points", []):
+        pts.append((p["x"], p["y"]))
+    xs = [p[0] for p in pts]; ys = [p[1] for p in pts]
+    pad = 1.0
+    return min(xs) - pad, min(ys) - pad, max(xs) + pad, max(ys) + pad
+
+
+# --- 2/3. pack + unpack, generalized --------------------------------------
+# One movable element contributes 2-4 numbers to the flat vector `u` (all in
+# [0,1]): position always, plus size/scale when extendable:true. Ranges are
+# derived from the room's bounding box and the element's *drawn* size, so
+# ANY vector in [0,1]^DIM decodes to a shape that stays inside the building
+# shell -- illegal-by-construction, same trick as the original hand-tuned
+# left/right split, just computed instead of hardcoded.
+
+class Spec:
+    def __init__(self, entries, dim, room, venue, bounds):
+        self.entries = entries   # list of dicts, see build_spec()
+        self.dim = dim
+        self.room = room         # raster extent (padded)
+        self.bounds = bounds     # placement extent (inside the shell)
+        self.venue = venue
+
+def _nparams(shape, extendable):
     return {
-        "pit":     (pit_x, pit_y, pit_w, pit_h),
-        "bar":     (bar_x, bar_y, bar_w, bar_h),
-        "riser":   (ris_x, ris_y, ris_w, ris_h),
-        "divider": (div_x, 0.0, div_x, div_y2),   # x1,y1,x2,y2
-    }
+        "rect":    4 if extendable else 2,
+        "circle":  3 if extendable else 2,
+        "line":    3 if extendable else 2,
+        "polygon": 3 if extendable else 2,
+        "point":   2,
+    }[shape]
+
+def build_spec(venue):
+    room = _room_bbox(venue)
+    bounds = _shell_bounds(venue)
+    entries = []
+    off = 0
+    for w in venue.get("walls", []):
+        if w.get("movable", False):
+            geo0 = _wall_geo(w); ext = w.get("extendable", False)
+            n = _nparams(geo0["shape"], ext)
+            entries.append({"kind": "wall", "id": w["id"], "geo0": geo0, "extendable": ext, "off": off, "n": n})
+            off += n
+    for z in venue.get("zones", []):
+        if z.get("movable", True):
+            geo0 = _zone_geo(z); ext = z.get("extendable", True)
+            n = _nparams(geo0["shape"], ext)
+            entries.append({"kind": "zone", "id": z["id"], "geo0": geo0, "extendable": ext, "off": off, "n": n})
+            off += n
+    for p in venue.get("points", []):
+        if p.get("movable", False):
+            geo0 = _point_geo(p)
+            n = _nparams("point", False)
+            entries.append({"kind": "point", "id": p["id"], "geo0": geo0, "extendable": False, "off": off, "n": n})
+            off += n
+    return Spec(entries, off, room, venue, bounds)
 
 
-def default_u(venue):
+def _rect_size_bounds(geo0, room):
+    rx0, ry0, rx1, ry1 = room
+    w_lo, w_hi = max(0.3, geo0["w"] * 0.4), min(rx1 - rx0, geo0["w"] * 2.0)
+    h_lo, h_hi = max(0.3, geo0["h"] * 0.4), min(ry1 - ry0, geo0["h"] * 2.0)
+    return w_lo, max(w_hi, w_lo), h_lo, max(h_hi, h_lo)
+
+def _circle_r_bounds(geo0, room):
+    rx0, ry0, rx1, ry1 = room
+    r_lo = max(0.2, geo0["r"] * 0.4)
+    r_hi = max(r_lo, min((rx1 - rx0) / 2, (ry1 - ry0) / 2, geo0["r"] * 2.0))
+    return r_lo, r_hi
+
+def _decode_entry(entry, uv, room):
+    geo0, ext = entry["geo0"], entry["extendable"]
+    rx0, ry0, rx1, ry1 = room
+    shape = geo0["shape"]
+
+    if shape == "point":
+        return {"shape": "point", "x": lerp(uv[0], rx0, rx1), "y": lerp(uv[1], ry0, ry1)}
+
+    if shape == "rect":
+        if ext:
+            w_lo, w_hi, h_lo, h_hi = _rect_size_bounds(geo0, room)
+            w = lerp(uv[0], w_lo, w_hi); h = lerp(uv[1], h_lo, h_hi)
+            x = lerp(uv[2], rx0, max(rx0, rx1 - w)); y = lerp(uv[3], ry0, max(ry0, ry1 - h))
+        else:
+            w, h = geo0["w"], geo0["h"]
+            x = lerp(uv[0], rx0, max(rx0, rx1 - w)); y = lerp(uv[1], ry0, max(ry0, ry1 - h))
+        return {"shape": "rect", "x": x, "y": y, "w": w, "h": h}
+
+    if shape == "circle":
+        if ext:
+            r_lo, r_hi = _circle_r_bounds(geo0, room)
+            r = lerp(uv[0], r_lo, r_hi)
+            cx = lerp(uv[1], rx0 + r, max(rx0 + r, rx1 - r)); cy = lerp(uv[2], ry0 + r, max(ry0 + r, ry1 - r))
+        else:
+            r = geo0["r"]
+            cx = lerp(uv[0], rx0 + r, max(rx0 + r, rx1 - r)); cy = lerp(uv[1], ry0 + r, max(ry0 + r, ry1 - r))
+        return {"shape": "circle", "cx": cx, "cy": cy, "r": r}
+
+    # line / polygon: translate the whole shape, optionally uniform-scale
+    # about its own centroid first -- generalizes "move the divider" to
+    # "move (and resize) any polyline or polygon".
+    pts0 = geo0["points"]
+    x0, y0, x1, y1 = _bbox_of_points(pts0)
+    ccx, ccy = (x0 + x1) / 2, (y0 + y1) / 2
+    i = 0
+    s = 1.0
+    if ext:
+        s = lerp(uv[0], 0.6, 1.6); i = 1
+    pts = [{"x": ccx + (p["x"] - ccx) * s, "y": ccy + (p["y"] - ccy) * s} for p in pts0]
+    bx0, by0, bx1, by1 = _bbox_of_points(pts)
+    w, h = bx1 - bx0, by1 - by0
+    dx = lerp(uv[i], rx0 - bx0, max(rx0 - bx0, (rx1 - w) - bx0))
+    dy = lerp(uv[i + 1], ry0 - by0, max(ry0 - by0, (ry1 - h) - by0))
+    pts = [{"x": p["x"] + dx, "y": p["y"] + dy} for p in pts]
+    out = {"shape": shape, "points": pts}
+    if shape == "line":
+        out["thickness"] = geo0.get("thickness", 0.25)
+    return out
+
+
+def _encode_entry(entry, room):
+    geo0, ext = entry["geo0"], entry["extendable"]
+    rx0, ry0, rx1, ry1 = room
+    shape = geo0["shape"]
+
+    if shape == "point":
+        return [inv(rx0, rx1, geo0["x"]), inv(ry0, ry1, geo0["y"])]
+
+    if shape == "rect":
+        vals = []
+        if ext:
+            w_lo, w_hi, h_lo, h_hi = _rect_size_bounds(geo0, room)
+            vals += [inv(w_lo, w_hi, geo0["w"]), inv(h_lo, h_hi, geo0["h"])]
+        w, h = geo0["w"], geo0["h"]
+        vals += [inv(rx0, max(rx0, rx1 - w), geo0["x"]), inv(ry0, max(ry0, ry1 - h), geo0["y"])]
+        return vals
+
+    if shape == "circle":
+        vals = []
+        if ext:
+            r_lo, r_hi = _circle_r_bounds(geo0, room)
+            vals += [inv(r_lo, r_hi, geo0["r"])]
+        r = geo0["r"]
+        vals += [inv(rx0 + r, max(rx0 + r, rx1 - r), geo0["cx"]), inv(ry0 + r, max(ry0 + r, ry1 - r), geo0["cy"])]
+        return vals
+
+    # line / polygon: the original is scale=1, dx=dy=0 by definition
+    pts0 = geo0["points"]
+    x0, y0, x1, y1 = _bbox_of_points(pts0)
+    vals = []
+    if ext:
+        vals += [inv(0.6, 1.6, 1.0)]
+    w, h = x1 - x0, y1 - y0
+    vals += [inv(rx0 - x0, max(rx0 - x0, (rx1 - w) - x0), 0.0),
+             inv(ry0 - y0, max(ry0 - y0, (ry1 - h) - y0), 0.0)]
+    return vals
+
+
+def _fixed_obstacle_bboxes(venue, movable_ids):
+    """Solid fixed things movable furniture must not sit on. Line walls are
+    deliberately excluded: a polyline's bbox is the space it ENCLOSES (the
+    perimeter's bbox is the whole room), and treating it as a block shoved
+    every movable element off the floor plan."""
+    boxes = []
+    for w in venue.get("walls", []):
+        if w["id"] in movable_ids or w.get("shape", "line") == "line":
+            continue
+        boxes.append(list(_shape_bbox(_wall_geo(w))))
+    for z in venue.get("zones", []):
+        if z["id"] in movable_ids or _classify_zone(z) != "obstacle":
+            continue
+        boxes.append(list(_shape_bbox(_zone_geo(z))))
+    return boxes
+
+def _resolve_overlaps(spec, movable):
+    """Best-effort: push movable furniture apart (and off fixed obstacles)
+    by the smallest axis translation, a few relaxation passes, re-clamping
+    into the room each time. Not a hard guarantee for pathological inputs,
+    but keeps the common case (a handful of rects/circles) overlap-free."""
+    # Zones are AREAS: a column or a riser standing inside the GA floor is
+    # normal, so zones are only kept off other zones. Solid movable walls
+    # (rect/pillar) are kept off fixed solids and each other. Movable LINE
+    # walls are thin barriers -- skipped here, the raster handles them.
+    solids = [e["id"] for e in spec.entries
+              if e["kind"] == "wall" and e["geo0"]["shape"] in ("rect", "circle")]
+    zones = [e["id"] for e in spec.entries if e["kind"] == "zone"]
+    furniture_ids = solids + zones
+    if not furniture_ids:
+        return
+    boxes = {i: list(_shape_bbox(movable[i])) for i in furniture_ids}
+    fixed = _fixed_obstacle_bboxes(spec.venue, set(furniture_ids))
+    rx0, ry0, rx1, ry1 = spec.bounds
+
+    def overlaps(a, b):
+        return a[0] < b[2] and a[2] > b[0] and a[1] < b[3] and a[3] > b[1]
+
+    def push(a, b):
+        ox = min(a[2], b[2]) - max(a[0], b[0])
+        oy = min(a[3], b[3]) - max(a[1], b[1])
+        if ox <= 0 or oy <= 0:
+            return
+        if ox < oy:
+            shift = ox if (a[0] + a[2]) >= (b[0] + b[2]) else -ox
+            a[0] += shift; a[2] += shift
+        else:
+            shift = oy if (a[1] + a[3]) >= (b[1] + b[3]) else -oy
+            a[1] += shift; a[3] += shift
+        w, h = a[2] - a[0], a[3] - a[1]
+        a[0] = min(max(a[0], rx0), rx1 - w); a[2] = a[0] + w
+        a[1] = min(max(a[1], ry0), ry1 - h); a[3] = a[1] + h
+
+    def rivals(i):
+        if i in solids:
+            return fixed + [boxes[j] for j in solids if j != i]
+        return [boxes[j] for j in zones if j != i]
+
+    for _ in range(12):
+        moved = False
+        for i in furniture_ids:
+            for b in rivals(i):
+                if overlaps(boxes[i], b):
+                    push(boxes[i], b); moved = True
+        if not moved:
+            break
+
+    # FALLBACK: pure translation can fail when the room is too small for
+    # both zones side by side -- pushing one away just walks it into the
+    # opposite wall, and the re-clamp above walks it right back, so the pair
+    # sits at 18% of random layouts with an unresolved overlap. Rather than
+    # leave that, shrink whichever box is smaller along the axis with less
+    # overlap, floored so it can't be shrunk to nothing. A few passes because
+    # shrinking one pair can newly clear (or newly create) another.
+    MIN_DIM = 1.0
+    for _ in range(4):
+        moved = False
+        for i in furniture_ids:
+            a = boxes[i]
+            for b in rivals(i):
+                if not overlaps(a, b):
+                    continue
+                ox = min(a[2], b[2]) - max(a[0], b[0])
+                oy = min(a[3], b[3]) - max(a[1], b[1])
+                if ox <= 0 or oy <= 0:
+                    continue
+                moved = True
+                if ox < oy:
+                    shrink = min(ox, max(a[2] - a[0] - MIN_DIM, 0.0))
+                    if (a[0] + a[2]) >= (b[0] + b[2]):
+                        a[0] += shrink
+                    else:
+                        a[2] -= shrink
+                else:
+                    shrink = min(oy, max(a[3] - a[1] - MIN_DIM, 0.0))
+                    if (a[1] + a[3]) >= (b[1] + b[3]):
+                        a[1] += shrink
+                    else:
+                        a[3] -= shrink
+        if not moved:
+            break
+
+    for i in furniture_ids:
+        x0, y0, x1, y1 = _shape_bbox(movable[i])
+        nx0, ny0, nx1, ny1 = boxes[i]
+        geo = movable[i]
+        # rect can absorb a shrink from the fallback pass directly as a
+        # smaller w/h; anything else (circle, line, polygon) only ever gets
+        # translated by this function, so a size change there is a no-op
+        # (the shrink fallback above only fires for pairs where at least one
+        # side is a rect in practice -- our venues' populated zones are rect).
+        if geo["shape"] == "rect" and (abs((nx1 - nx0) - (x1 - x0)) > 1e-9
+                                       or abs((ny1 - ny0) - (y1 - y0)) > 1e-9):
+            geo["x"], geo["y"], geo["w"], geo["h"] = nx0, ny0, nx1 - nx0, ny1 - ny0
+        else:
+            _translate_geo(movable[i], nx0 - x0, ny0 - y0)
+
+
+def unpack(u, venue, spec):
+    """u: `spec.dim` numbers in [0,1]. Returns {element id: concrete geo}."""
+    u = np.clip(np.asarray(u, dtype=float), 0.0, 1.0)
+    movable = {}
+    for e in spec.entries:
+        uv = u[e["off"]: e["off"] + e["n"]]
+        movable[e["id"]] = _decode_entry(e, uv, spec.bounds)
+    _resolve_overlaps(spec, movable)
+    return movable
+
+def default_u(venue, spec):
     """The vector that reproduces the ORIGINAL layout from the JSON, so you
     always have a real 'before' to compare against."""
-    pit  = next(z for z in venue["zones"] if z["id"] == "zone_pit")
-    bar  = next(z for z in venue["zones"] if z["id"] == "zone_bar")
-    ris  = next(w for w in venue["walls"] if w["id"] == "wall_riser_1")
-    div  = next(w for w in venue["walls"] if w["id"] == "wall_divider")
-
-    def inv(lo, hi, v):
-        return 0.0 if hi == lo else (v - lo) / (hi - lo)
-
-    u = np.zeros(DIM)
-    u[0] = inv(6, 16, pit["w"]);  u[1] = inv(6, 12, pit["h"])
-    u[2] = inv(0, 16 - pit["w"], pit["x"]);  u[3] = inv(8, 20 - pit["h"], pit["y"])
-    u[4] = inv(3, 8, bar["w"]);   u[5] = inv(2, 6, bar["h"])
-    u[6] = inv(17, 30 - bar["w"], bar["x"]); u[7] = inv(0, 10 - bar["h"], bar["y"])
-    u[8] = inv(2, 8, ris["w"]);   u[9] = inv(1, 4, ris["h"])
-    u[10] = inv(17, 30 - ris["w"], ris["x"]); u[11] = inv(10, 20 - ris["h"], ris["y"])
-    u[12] = inv(2, 19, div["points"][1]["y"])
-    u[13] = inv(16.2, 29, div["points"][0]["x"])
+    u = np.zeros(spec.dim)
+    for e in spec.entries:
+        u[e["off"]: e["off"] + e["n"]] = _encode_entry(e, spec.bounds)
     return np.clip(u, 0, 1)
 
 
-# --- 4. score: geometric placeholder for the real simulator --------------
-# People start in the pit and bar (weighted by capacity). They walk toward
-# whichever exit is closer, and every obstacle -- including the divider and
-# riser YOU place -- blocks the direct path. A gap that's too narrow makes
-# a lot of "flow" squeeze through one cell: that's the pressure signal.
+# --- 4. score: geometric placeholder for the real simulator ---------------
+# Several scenarios share one engine: mark obstacles on a grid, seed sinks,
+# run Dijkstra, accumulate flow from far to near, and read pressure off of
+# how much flow gets squeezed through how little corridor width.
 
-def _rasterize(venue, cfg):
-    W, H = int(30 / CELL), int(20 / CELL)
+def _effective_geo(venue, movable):
+    """id -> geo for every wall/zone/point: movable ones from `movable`,
+    everything else straight from the JSON."""
+    out = {}
+    for w in venue.get("walls", []):
+        out[w["id"]] = movable.get(w["id"], _wall_geo(w))
+    for z in venue.get("zones", []):
+        out[z["id"]] = movable.get(z["id"], _zone_geo(z))
+    for p in venue.get("points", []):
+        out[p["id"]] = movable.get(p["id"], _point_geo(p))
+    return out
+
+def _grid_shape(room, cell=CELL):
+    rx0, ry0, rx1, ry1 = room
+    return max(int(np.ceil((ry1 - ry0) / cell)), 1), max(int(np.ceil((rx1 - rx0) / cell)), 1)  # H, W
+
+def _to_cell(room, x, y, cell=CELL):
+    rx0, ry0, _, _ = room
+    return int((y - ry0) / cell), int((x - rx0) / cell)
+
+def _point_in_polygon(X, Y, points):
+    """Even-odd ray-casting rule, vectorized over X/Y arrays of any shape.
+    `points` is [(x, y), ...], not implicitly closed by the caller here --
+    the loop below closes it by wrapping from the last point to the first."""
+    inside = np.zeros(X.shape, dtype=bool)
+    x1p, y1p = points[-1]
+    for x2p, y2p in points:
+        crosses = (y1p > Y) != (y2p > Y)
+        denom = (y2p - y1p) or 1e-12
+        x_at_y = x1p + (Y - y1p) * (x2p - x1p) / denom
+        inside ^= crosses & (X < x_at_y)
+        x1p, y1p = x2p, y2p
+    return inside
+
+def _build_obstacle(venue, geo, room, cell=CELL):
+    H, W = _grid_shape(room, cell)
+    rx0, ry0, _, _ = room
     obstacle = np.zeros((H, W), dtype=bool)
-    obstacle[0, :] = obstacle[-1, :] = True
-    obstacle[:, 0] = obstacle[:, -1] = True
+
+    def _bbox_cells(x0, y0, x1, y1, pad_cells=0):
+        r0, c0 = _to_cell(room, x0, y0, cell); r1, c1 = _to_cell(room, x1, y1, cell)
+        r0, c0 = max(r0 - pad_cells, 0), max(c0 - pad_cells, 0)
+        r1, c1 = min(r1 + 1 + pad_cells, H), min(c1 + 1 + pad_cells, W)
+        return r0, c0, r1, c1
 
     def mark_rect(x, y, w, h):
-        c0, c1 = int(x / CELL), int((x + w) / CELL)
-        r0, r1 = int(y / CELL), int((y + h) / CELL)
-        obstacle[max(r0,0):min(r1,H), max(c0,0):min(c1,W)] = True
+        r0, c0, r1, c1 = _bbox_cells(x, y, x + w, y + h)
+        r1, c1 = max(r1, r0 + 1), max(c1, c0 + 1)   # never mark an empty strip
+        obstacle[r0:r1, c0:c1] = True
 
-    def mark_line(x1, y1, x2, y2, thick=0.3):
-        n = int(np.hypot(x2 - x1, y2 - y1) / (CELL / 2)) + 1
-        for t in np.linspace(0, 1, n):
-            mark_rect(x1 + (x2-x1)*t - thick/2, y1 + (y2-y1)*t - thick/2, thick, thick)
+    def mark_circle(cx, cy, r):
+        # an actual disc, not the bounding square: a round column marked as
+        # its full bbox blocks a corner nobody's actually walking through.
+        r0, c0, r1, c1 = _bbox_cells(cx - r, cy - r, cx + r, cy + r)
+        if r1 <= r0 or c1 <= c0:
+            return
+        ys = ry0 + (np.arange(r0, r1) + 0.5) * cell
+        xs = rx0 + (np.arange(c0, c1) + 0.5) * cell
+        Y, X = np.meshgrid(ys, xs, indexing="ij")
+        obstacle[r0:r1, c0:c1] |= (X - cx) ** 2 + (Y - cy) ** 2 <= r * r
 
-    stage = next(z for z in venue["zones"] if z["id"] == "zone_stage")
-    mark_rect(stage["x"], stage["y"], stage["w"], stage["h"])
-    col = next(w for w in venue["walls"] if w["id"] == "wall_column_1")
-    mark_rect(col["cx"] - col["r"], col["cy"] - col["r"], 2*col["r"], 2*col["r"])
-    mark_rect(*cfg["riser"])
-    mark_line(*cfg["divider"])
+    def mark_polygon(points):
+        # the actual polygon, not its bbox: a triangular or L-shaped stage
+        # was blocking the full rectangle around it, denying a walkable
+        # corner that was never part of the stage.
+        x0, y0, x1, y1 = _bbox_of_points([{"x": px, "y": py} for px, py in points])
+        r0, c0, r1, c1 = _bbox_cells(x0, y0, x1, y1)
+        if r1 <= r0 or c1 <= c0:
+            return
+        ys = ry0 + (np.arange(r0, r1) + 0.5) * cell
+        xs = rx0 + (np.arange(c0, c1) + 0.5) * cell
+        Y, X = np.meshgrid(ys, xs, indexing="ij")
+        obstacle[r0:r1, c0:c1] |= _point_in_polygon(X, Y, points)
 
-    source = np.zeros((H, W))
-    def add_source(x, y, w, h, total):
-        c0, c1 = max(int(x/CELL),0), min(int((x+w)/CELL),W)
-        r0, r1 = max(int(y/CELL),0), min(int((y+h)/CELL),H)
-        cells = obstacle[r0:r1, c0:c1] == False
-        n = max(cells.sum(), 1)
-        source[r0:r1, c0:c1][cells] += total / n
+    def mark_line(points, thick):
+        for (x1, y1), (x2, y2) in zip(points[:-1], points[1:]):
+            n = int(np.hypot(x2 - x1, y2 - y1) / (cell / 2)) + 1
+            for t in np.linspace(0, 1, n):
+                mark_rect(x1 + (x2 - x1) * t - thick / 2, y1 + (y2 - y1) * t - thick / 2, thick, thick)
 
-    pit_cap = next(z for z in venue["zones"] if z["id"] == "zone_pit").get("capacity") or 500
-    bar_cap = next(z for z in venue["zones"] if z["id"] == "zone_bar").get("capacity") or 20
-    add_source(*cfg["pit"], pit_cap)
-    add_source(*cfg["bar"], bar_cap)
+    for w in venue.get("walls", []):
+        g = geo[w["id"]]
+        if g["shape"] == "rect":
+            mark_rect(g["x"], g["y"], g["w"], g["h"])
+        elif g["shape"] == "circle":
+            mark_circle(g["cx"], g["cy"], g["r"])
+        elif g["shape"] == "line":
+            mark_line([(p["x"], p["y"]) for p in g["points"]], g.get("thickness", 0.25))
 
-    sinks = []
-    for p in venue["points"]:
-        r, c = int(p["y"]/CELL), int(p["x"]/CELL)
-        r, c = min(max(r,0),H-1), min(max(c,0),W-1)
-        obstacle[max(r-1,0):r+2, max(c-1,0):c+2] = False
-        # spec: flowRate is people PER MINUTE -- convert to people/sec here
-        # so every rate in this file is in the same units.
-        flow_per_min = p.get("flowRate") or 1e9
-        sinks.append((r, c, flow_per_min / 60.0))
+    for z in venue.get("zones", []):
+        if _classify_zone(z) != "obstacle":
+            continue
+        g = geo[z["id"]]
+        if g["shape"] == "rect":
+            mark_rect(g["x"], g["y"], g["w"], g["h"])
+        elif g["shape"] == "circle":
+            mark_circle(g["cx"], g["cy"], g["r"])
+        elif g["shape"] == "polygon":
+            mark_polygon([(p["x"], p["y"]) for p in g["points"]])
 
-    return obstacle, source, sinks
+    return obstacle
 
+def _cells_in_rect(room, shape_hw, x, y, w, h, cell=CELL):
+    H, W = shape_hw
+    r0, c0 = _to_cell(room, x, y, cell); r1, c1 = _to_cell(room, x + w, y + h, cell)
+    r0, r1 = max(r0, 0), min(r1, H); c0, c1 = max(c0, 0), min(c1, W)
+    return {(r, c) for r in range(r0, r1) for c in range(c0, c1)}
 
-def _dijkstra(obstacle, sinks):
+def _geo_interior_cells(obstacle, room, geo, cell=CELL):
+    """Open cells inside a zone -- where its occupants actually stand. Exact
+    for circle/polygon (not their bbox): a round seating area was putting
+    people in its bounding square's corners, outside the actual circle,
+    which both overstated capacity-per-area and could place a source cell
+    somewhere the zone was never drawn to cover."""
+    rx0, ry0, _, _ = room
+    if geo["shape"] == "rect":
+        cells = _cells_in_rect(room, obstacle.shape, geo["x"], geo["y"], geo["w"], geo["h"], cell)
+        return [(r, c) for (r, c) in cells if not obstacle[r, c]]
+
+    if geo["shape"] == "circle":
+        cx, cy, r = geo["cx"], geo["cy"], geo["r"]
+        cells = _cells_in_rect(room, obstacle.shape, cx - r, cy - r, 2 * r, 2 * r, cell)
+        out = []
+        for (rr, cc) in cells:
+            if obstacle[rr, cc]:
+                continue
+            x, y = rx0 + (cc + 0.5) * cell, ry0 + (rr + 0.5) * cell
+            if (x - cx) ** 2 + (y - cy) ** 2 <= r * r:
+                out.append((rr, cc))
+        return out
+
+    # polygon
+    pts = [(p["x"], p["y"]) for p in geo["points"]]
+    x0, y0, x1, y1 = _bbox_of_points(geo["points"])
+    cells = _cells_in_rect(room, obstacle.shape, x0, y0, x1 - x0, y1 - y0, cell)
+    out = []
+    for (rr, cc) in cells:
+        if obstacle[rr, cc]:
+            continue
+        x, y = rx0 + (cc + 0.5) * cell, ry0 + (rr + 0.5) * cell
+        if _point_in_polygon(x, y, pts):
+            out.append((rr, cc))
+    return out
+
+def _geo_ring_cells(obstacle, room, geo, pad_cells=1, cell=CELL):
+    """Open cells just outside a zone -- where a crowd converging ON it
+    (a stage, a destination) actually queues up."""
+    x0, y0, x1, y1 = _shape_bbox(geo)
+    pad = pad_cells * cell
+    outer = _cells_in_rect(room, obstacle.shape, x0 - pad, y0 - pad, (x1 - x0) + 2 * pad, (y1 - y0) + 2 * pad, cell)
+    inner = _cells_in_rect(room, obstacle.shape, x0, y0, x1 - x0, y1 - y0, cell)
+    ring = [(r, c) for (r, c) in (outer - inner) if not obstacle[r, c]]
+    if ring:
+        return ring
+    return _point_cells(obstacle, room, (x0 + x1) / 2, (y0 + y1) / 2, cell)  # fallback: force a reachable hole
+
+def _point_cells(obstacle, room, x, y, cell=CELL):
+    H, W = obstacle.shape
+    r, c = _to_cell(room, x, y, cell)
+    r, c = min(max(r, 0), H - 1), min(max(c, 0), W - 1)
+    obstacle[max(r - 1, 0):r + 2, max(c - 1, 0):c + 2] = False   # guarantee it's reachable
+    return [(r, c)]
+
+def _add_source(source, obstacle, cells, total):
+    cells = [c for c in cells if not obstacle[c]]
+    if not cells:
+        return
+    for c in cells:
+        source[c] += total / len(cells)
+
+def _dijkstra(obstacle, sink_cell_groups):
+    """sink_cell_groups[i] = every cell belonging to sink i (a point is one
+    cell; a zone-sink can be many, e.g. its whole ring)."""
     H, W = obstacle.shape
     dist = np.full((H, W), np.inf)
     nearest = np.full((H, W), -1, dtype=int)
     pq = []
-    for i, (r, c, _) in enumerate(sinks):
-        dist[r, c] = 0.0; nearest[r, c] = i
-        heapq.heappush(pq, (0.0, r, c))
+    for i, cells in enumerate(sink_cell_groups):
+        for (r, c) in cells:
+            if dist[r, c] != 0.0:
+                dist[r, c] = 0.0; nearest[r, c] = i
+                heapq.heappush(pq, (0.0, r, c))
     while pq:
         d, r, c = heapq.heappop(pq)
-        if d > dist[r, c]: continue
-        for dr in (-1,0,1):
-            for dc in (-1,0,1):
-                if dr == 0 and dc == 0: continue
-                nr, nc = r+dr, c+dc
+        if d > dist[r, c]:
+            continue
+        for dr in (-1, 0, 1):
+            for dc in (-1, 0, 1):
+                if dr == 0 and dc == 0:
+                    continue
+                nr, nc = r + dr, c + dc
                 if not (0 <= nr < H and 0 <= nc < W) or obstacle[nr, nc]:
                     continue
                 nd = d + CELL * (1.4142 if dr and dc else 1.0)
@@ -170,94 +643,275 @@ def _dijkstra(obstacle, sinks):
                     heapq.heappush(pq, (nd, nr, nc))
     return dist, nearest
 
-
-def score(venue, u):
-    """The function your optimizer calls. Same shape as evaluate() before:
-    in a venue config, out a dict with evac_time and peak_pressure."""
-    cfg = unpack(u, venue)
-    obstacle, source, sinks = _rasterize(venue, cfg)
-    dist, nearest = _dijkstra(obstacle, sinks)
-
+def _flow_and_pressure(obstacle, dist, source):
+    H, W = obstacle.shape
     reachable = np.isfinite(dist) & (source > 0)
     if not reachable.any():
-        return {"evac_time": 1e4, "peak_pressure": 10.0, "cfg": cfg}
-
-    # flow accumulation: push each cell's load one step toward its
-    # lower-distance neighbour, in order from farthest to nearest.
+        z = np.zeros_like(source)
+        return z, z, reachable
     flow = source.copy()
-    H, W = obstacle.shape
     order = np.dstack(np.unravel_index(np.argsort(-dist, axis=None), dist.shape))[0]
     for r, c in order:
         if obstacle[r, c] or not np.isfinite(dist[r, c]) or flow[r, c] == 0:
             continue
         best, bd = None, dist[r, c]
-        for dr in (-1,0,1):
-            for dc in (-1,0,1):
-                if dr == 0 and dc == 0: continue
-                nr, nc = r+dr, c+dc
+        for dr in (-1, 0, 1):
+            for dc in (-1, 0, 1):
+                if dr == 0 and dc == 0:
+                    continue
+                nr, nc = r + dr, c + dc
                 if 0 <= nr < H and 0 <= nc < W and not obstacle[nr, nc] and dist[nr, nc] < bd:
                     bd, best = dist[nr, nc], (nr, nc)
         if best:
             flow[best] += flow[r, c]
-
-    # local corridor width = free cells in a 3x3 window; pressure spikes
-    # where a lot of flow is squeezed through a narrow gap
     free = (~obstacle).astype(float)
     width = np.zeros_like(free)
-    width[1:-1,1:-1] = sum(free[1+dr:H-1+dr, 1+dc:W-1+dc]
-                            for dr in (-1,0,1) for dc in (-1,0,1))
+    width[1:-1, 1:-1] = sum(free[1 + dr:H - 1 + dr, 1 + dc:W - 1 + dc] for dr in (-1, 0, 1) for dc in (-1, 0, 1))
     with np.errstate(divide="ignore", invalid="ignore"):
         pressure = np.where(width > 0, flow / np.maximum(width, 1) / 40.0, 0.0)
+    return flow, pressure, reachable
 
+def _run_scenario(obstacle, sources, sinks):
+    """sources: [(cells, total_people), ...]. sinks: [(cells, capacity/s), ...].
+    Returns time-to-clear and peak crowd pressure for this scenario alone."""
+    H, W = obstacle.shape
+    source = np.zeros((H, W))
+    for cells, total in sources:
+        _add_source(source, obstacle, cells, total)
+    dist, nearest = _dijkstra(obstacle, [cells for cells, _ in sinks])
+    flow, pressure, reachable = _flow_and_pressure(obstacle, dist, source)
+    if not sources or not sinks or not reachable.any():
+        bad = bool(sources) and bool(sinks)   # people exist but can't reach a sink -> genuinely bad
+        return {"time": 1e4 if bad else 0.0, "pressure": 10.0 if bad else 0.0,
+                "flow": flow, "pressure_map": pressure}
     loads = np.zeros(len(sinks))
     for i in range(len(sinks)):
         loads[i] = source[(nearest == i) & reachable].sum()
-    walk_time = float(dist[reachable].max()) / WALK_SPEED if reachable.any() else 0.0
-    queue_time = max((loads[i] / sinks[i][2] for i in range(len(sinks))), default=0.0)
+    walk_time = float(dist[reachable].max()) / WALK_SPEED
+    queue_time = max((loads[i] / max(sinks[i][1], 1e-6) for i in range(len(sinks))), default=0.0)
+    return {"time": walk_time + queue_time, "pressure": float(pressure.max()),
+            "flow": flow, "pressure_map": pressure}
 
+
+def score(venue, u, spec):
+    """The function your optimizer calls. Runs every applicable scenario and
+    returns each one's numbers plus legacy evac_time/peak_pressure aliases
+    (the "evacuation" scenario) for callers that only care about one number."""
+    movable = unpack(u, venue, spec)
+    geo = _effective_geo(venue, movable)
+    room = spec.room
+    obstacle = _build_obstacle(venue, geo, room)
+
+    pop_zones    = [z for z in venue.get("zones", []) if _classify_zone(z) == "populated"]
+    exit_pts     = [p for p in venue.get("points", []) if p.get("type") in ("exit", "emergency-exit")]
+    entrance_pts = [p for p in venue.get("points", []) if p.get("type") == "entrance"]
+    hotspots     = [z for z in venue.get("zones", []) if z.get("type") == "stage"]
+
+    def zone_source(z):
+        return (_geo_interior_cells(obstacle, room, geo[z["id"]]), z.get("capacity") or 0)
+
+    def zone_sink(z):
+        cap, stick = z.get("capacity") or 0, z.get("stickiness") or 0
+        rate = cap / (stick * 60.0) if (stick and cap) else 1e9
+        return (_geo_ring_cells(obstacle, room, geo[z["id"]]), rate)
+
+    def point_source(p):
+        g = geo[p["id"]]
+        return (_point_cells(obstacle, room, g["x"], g["y"]), (p.get("flowRate") or DEFAULT_ENTRANCE_FLOW) * SURGE_MINUTES)
+
+    def point_sink(p):
+        g = geo[p["id"]]
+        return (_point_cells(obstacle, room, g["x"], g["y"]), (p.get("flowRate") or 1e9) / 60.0)
+
+    scenarios = {}
+    if pop_zones and exit_pts:
+        scenarios["evacuation"] = _run_scenario(obstacle, [zone_source(z) for z in pop_zones],
+                                                 [point_sink(p) for p in exit_pts])
+    if entrance_pts and pop_zones:
+        scenarios["entrance_surge"] = _run_scenario(obstacle, [point_source(p) for p in entrance_pts],
+                                                      [zone_sink(z) for z in pop_zones])
+    if pop_zones and hotspots:
+        scenarios["hotspot_rush"] = _run_scenario(obstacle, [zone_source(z) for z in pop_zones],
+                                                    [zone_sink(z) for z in hotspots])
+    if not scenarios:
+        z = np.zeros_like(obstacle, dtype=float)
+        scenarios["evacuation"] = {"time": 0.0, "pressure": 0.0, "flow": z, "pressure_map": z}
+
+    evac = scenarios.get("evacuation", next(iter(scenarios.values())))
     return {
-        "evac_time": walk_time + queue_time,
-        "peak_pressure": float(pressure.max()),
-        "cfg": cfg,
-        "obstacle": obstacle, "flow": flow, "pressure": pressure,
+        "scenarios": scenarios, "cfg": movable, "obstacle": obstacle,
+        "evac_time": evac["time"], "peak_pressure": evac["pressure"],
+        "flow": evac["flow"], "pressure": evac["pressure_map"],
     }
 
 
-def objective(venue, u):
-    r = score(venue, u)
-    return r["evac_time"] + 400.0 * r["peak_pressure"]
+SCENARIO_WEIGHTS = {"evacuation": 1.0, "entrance_surge": 0.4, "hotspot_rush": 0.6}
+
+def geometric_objective(venue, u, spec, weights=None):
+    """The old Dijkstra + flow-accumulation stand-in. Kept because it is ~1000x
+    faster than the real solver and useful for smoke tests; it is NOT what the
+    optimizer trains on any more. See simulate()/objective() below."""
+    r = score(venue, u, spec)
+    weights = weights or SCENARIO_WEIGHTS
+    return sum(weights.get(name, 0.3) * (s["time"] + 400.0 * s["pressure"])
+               for name, s in r["scenarios"].items())
 
 
-def write_result(venue, u0, u1, r0, r1, out_path):
+# --- the real scorer: the Hughes continuum simulator in sim.py -------------
+# CLAUDE.md said that when the real simulator landed, the only change needed
+# was to make objective() call it instead. This is that change.
+
+# Single source of truth for how long each scenario runs. Training and
+# verification MUST use the same horizon per scenario -- peak density,
+# danger area, and clipped mass all accumulate with time, so a U-Net trained
+# on 240s of circulation and then verified against 300s of it is being asked
+# to predict a different physical quantity than the one it learned. (This
+# mismatch is exactly why every search candidate failed the 1% validity bar
+# on 2026-09-11: training filtered out anything over the bar at 240s, but
+# `default_suite` was verifying at 300s, well past where the still-open
+# dwelling-release leak -- see sim.py's "KNOWN ISSUE" notes -- accumulates
+# past 1%.) Change a horizon here and both training_suite() and
+# default_suite() pick it up automatically.
+SCENARIO_HORIZONS = {"circulation": 240.0, "evacuation": 420.0, "headliner": 180.0}
+
+
+def training_suite(venue, spec):
+    """What the surrogate trains against: the three scenarios that actually
+    discriminate between layouts. Cheap enough to run hundreds of times;
+    the full suite below is what verifies the winner, on the SAME horizons."""
+    weights = {"circulation": 0.8, "evacuation": 1.0, "headliner": 1.0}
+    return [{"scenario": s, "weight": weights[s], "incident": None, "horizon": h}
+            for s, h in SCENARIO_HORIZONS.items()]
+
+
+def default_suite(venue, spec, n_incidents=2, seed=0):
+    """What a layout gets judged on: the venue's normal operation and its bad
+    days, including incidents at arbitrary spots on the floor.
+
+    Incident locations are drawn from a FIXED seed so the objective stays a
+    deterministic function of u -- a surrogate cannot learn a target that
+    re-rolls its own dice every call."""
+    import sim
+    # 'ingress' is dropped: at a realistic admission rate it scored identically
+    # on every layout tried, so it cost runtime and told the optimizer nothing.
+    # Horizons come from SCENARIO_HORIZONS -- the same ones training_suite()
+    # uses, on purpose (see that constant's comment).
+    suite = [{"scenario": name, "incident": None, "weight": sim.SCENARIO_WEIGHTS[name],
+              "horizon": SCENARIO_HORIZONS[name]}
+             for name in ("circulation", "evacuation", "headliner")]
+    rx0, ry0, rx1, ry1 = spec.room
+    rng = np.random.default_rng(seed)
+    for i in range(n_incidents):
+        # a commotion somewhere on the floor during normal operation, and the
+        # evacuation that a blocked route turns into
+        suite.append({
+            "scenario": "circulation", "weight": 0.8, "horizon": SCENARIO_HORIZONS["circulation"],
+            "incident": {"x": float(rng.uniform(rx0, rx1)), "y": float(rng.uniform(ry0, ry1)),
+                          "kind": "attractor" if i % 2 == 0 else "blockage",
+                          "t": 30.0, "share": 0.5, "radius": 3.0,
+                          "label": f"incident_{i}"},
+        })
+    return suite
+
+
+def simulate(venue, u, spec, suite=None, horizon=None, dx=None, density_model=None):
+    """Run a layout through the whole scenario suite. Returns one result dict
+    per scenario, each already appraised. `density_model` overrides
+    sim.DENSITY_MODEL -- the teammates' maps-in / density-map-out equation."""
+    import sim
+    movable = unpack(u, venue, spec)
+    vg = sim.Venue(venue, movable, spec.room, dx=dx or sim.DX)
+    suite = suite if suite is not None else default_suite(venue, spec)
+    out = []
+    for item in suite:
+        r = sim.run(vg, item["scenario"], incident=item.get("incident"),
+                    horizon=horizon or item.get("horizon") or sim.HORIZON)
+        r["terms"] = sim.appraise(r, density_model=density_model)
+        r["weight"] = item.get("weight", 1.0)
+        r["label"] = item["scenario"] + (f" + {item['incident']['label']}" if item.get("incident") else "")
+        out.append(r)
+    return out
+
+
+def objective(venue, u, spec, suite=None, horizon=None, dx=None, density_model=None):
+    """The number the optimizer minimizes: the weighted appraisal across every
+    scenario, driven by the excess-density cost from Hackathon.docx (both
+    summed over time and applied to the density map) plus explicit penalties
+    for layouts that strand or fail to fit the crowd."""
+    results = simulate(venue, u, spec, suite=suite, horizon=horizon, dx=dx,
+                       density_model=density_model)
+    total = sum(r["weight"] * r["terms"]["cost"] for r in results)
+    return total / max(sum(r["weight"] for r in results), 1e-9)
+
+
+def _apply_geo(venue_copy, element_id, geo):
+    for coll in ("walls", "zones", "points"):
+        for el in venue_copy.get(coll, []):
+            if el["id"] != element_id:
+                continue
+            if geo["shape"] == "rect":
+                el["x"], el["y"], el["w"], el["h"] = geo["x"], geo["y"], geo["w"], geo["h"]
+            elif geo["shape"] == "circle":
+                el["cx"], el["cy"], el["r"] = geo["cx"], geo["cy"], geo["r"]
+            elif geo["shape"] in ("line", "polygon"):
+                el["points"] = [dict(p) for p in geo["points"]]
+            elif geo["shape"] == "point":
+                el["x"], el["y"] = geo["x"], geo["y"]
+            return
+
+def write_sim_result(venue, u0, u1, before, after, spec, out_path):
+    """Write the simulator's before/after into a venue-shaped JSON, per
+    docs/VENUE_FORMAT.md: unrecognized top-level keys survive a round-trip
+    through the editor, so we ADD a `simulation` key rather than mutating the
+    geometry in place. `before`/`after` are the per-scenario appraisals."""
+    out = copy.deepcopy(venue)
+    optimized = copy.deepcopy(venue)
+    for eid, geo in unpack(u1, venue, spec).items():
+        _apply_geo(optimized, eid, geo)
+
+    def clean(rows):
+        return [{k: (float(v) if isinstance(v, (int, float, np.floating)) else v)
+                 for k, v in row.items()} for row in rows]
+
+    out["simulation"] = {
+        "engine": "Hughes continuum (sim.py) -- Weidmann speed law, eikonal routing, FV upwind",
+        "generatedAt": __import__("datetime").datetime.now(
+            __import__("datetime").timezone.utc).isoformat().replace("+00:00", "Z"),
+        "cost_function": {
+            "source": "Hackathon.docx excess-magnitude density penalty (softplus form)",
+            "rho_safe": __import__("sim").RHO_SAFE,
+            "p": __import__("sim").COST_P,
+            "k": __import__("sim").COST_K,
+            "note": "normalized per m^2 of venue per second modeled",
+        },
+        "scenarios_before": clean(before),
+        "scenarios_after": clean(after),
+        "movable_elements": [e["id"] for e in spec.entries],
+        "optimized_venue": optimized,   # a full venue doc -- droppable into the editor
+    }
+    with open(out_path, "w") as f:
+        json.dump(out, f, indent=2)
+
+
+def write_result(venue, u0, u1, r0, r1, spec, out_path):
     """Write results back into a venue-shaped JSON, per docs/VENUE_FORMAT.md:
     'unrecognized top-level keys survive a round-trip through the editor' --
     so we ADD a `simulation` key rather than mutating the geometry in place.
-    This file stays openable in the editor; the team can see the optimized
-    layout as an overlay without it ever being mistaken for a hand-drawn one.
     """
-    import copy
     out = copy.deepcopy(venue)
-    cfg0, cfg1 = unpack(u0, venue), unpack(u1, venue)
-
-    def apply(v, cfg):
-        for z in v["zones"]:
-            if z["id"] == "zone_pit":
-                z["x"], z["y"], z["w"], z["h"] = cfg["pit"]
-            if z["id"] == "zone_bar":
-                z["x"], z["y"], z["w"], z["h"] = cfg["bar"]
-        for w in v["walls"]:
-            if w["id"] == "wall_riser_1":
-                w["x"], w["y"], w["w"], w["h"] = cfg["riser"]
-            if w["id"] == "wall_divider":
-                x1, y1, x2, y2 = cfg["divider"]
-                w["points"] = [{"x": x1, "y": y1}, {"x": x2, "y": y2}]
-
+    movable1 = unpack(u1, venue, spec)
     optimized = copy.deepcopy(venue)
-    apply(optimized, cfg1)
+    for eid, geo in movable1.items():
+        _apply_geo(optimized, eid, geo)
+
+    def scenario_summary(r):
+        return {name: {"time_s": s["time"], "peak_pressure": s["pressure"]} for name, s in r["scenarios"].items()}
 
     out["simulation"] = {
         "engine": "placeholder-geometric (arena.py) -- swap for the real solver",
         "generatedAt": __import__("datetime").datetime.utcnow().isoformat() + "Z",
+        "scenarios_before": scenario_summary(r0),
+        "scenarios_after": scenario_summary(r1),
         "before": {"evac_time_s": r0["evac_time"], "peak_pressure": r0["peak_pressure"]},
         "after":  {"evac_time_s": r1["evac_time"], "peak_pressure": r1["peak_pressure"]},
         "optimized_venue": optimized,   # a full venue doc -- droppable straight into the editor

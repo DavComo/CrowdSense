@@ -1,0 +1,89 @@
+{
+  "version": 1,
+  "meta": {
+    "name": "Republic Community Center Room",
+    "unit": "m",
+    "createdAt": "2026-09-11T22:41:33.000Z",
+    "updatedAt": "2026-09-11T22:41:33.000Z"
+  },
+  "scale": {
+    "pixelsPerUnit": 20
+  },
+  "background": null,
+  "source": {
+    "name": "Republic Community Center Room",
+    "url": "https://www.republiclibraryfriends.org/wp-content/uploads/2023/10/ReportFeasibilityStudy-Repbulic-Final-reduced.pdf",
+    "note": "floor plan approximated from a publicly posted booking/listing page, not an architectural drawing"
+  },
+  "walls": [
+    {
+      "id": "wall_perimeter",
+      "shape": "line",
+      "points": [
+        {
+          "x": 0,
+          "y": 0
+        },
+        {
+          "x": 16,
+          "y": 0
+        },
+        {
+          "x": 16,
+          "y": 14
+        },
+        {
+          "x": 0,
+          "y": 14
+        },
+        {
+          "x": 0,
+          "y": 0
+        }
+      ],
+      "thickness": 0.3,
+      "color": "#c9cbd4",
+      "movable": false,
+      "extendable": false
+    }
+  ],
+  "zones": [
+    {
+      "id": "zone_lecture",
+      "type": "seating",
+      "name": "Town Hall Seating",
+      "shape": "rect",
+      "x": 1,
+      "y": 1,
+      "w": 14,
+      "h": 12,
+      "color": "#8b7fe0",
+      "capacity": 180,
+      "stickiness": 90,
+      "movable": true,
+      "extendable": true
+    }
+  ],
+  "points": [
+    {
+      "id": "point_lobby_entrance",
+      "type": "entrance",
+      "name": "Lobby Entrance",
+      "x": 8,
+      "y": 14,
+      "flowRate": 120,
+      "color": "#5bb98c",
+      "movable": false
+    },
+    {
+      "id": "point_back_exit",
+      "type": "emergency-exit",
+      "name": "North Exit",
+      "x": 16,
+      "y": 7,
+      "flowRate": 90,
+      "color": "#e0564f",
+      "movable": false
+    }
+  ]
+}

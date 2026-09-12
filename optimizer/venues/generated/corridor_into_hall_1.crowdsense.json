@@ -1,0 +1,175 @@
+{
+  "version": 1,
+  "meta": {
+    "name": "Generated Corridor+Hall #1",
+    "unit": "m",
+    "createdAt": "2026-09-12T02:39:28.875749Z",
+    "updatedAt": "2026-09-12T02:39:28.875751Z"
+  },
+  "scale": {
+    "pixelsPerUnit": 20
+  },
+  "background": null,
+  "walls": [
+    {
+      "id": "wall_perimeter",
+      "shape": "line",
+      "points": [
+        {
+          "x": 0,
+          "y": 0
+        },
+        {
+          "x": 24.415170102997394,
+          "y": 0
+        },
+        {
+          "x": 24.415170102997394,
+          "y": 14.547804492388702
+        },
+        {
+          "x": 0,
+          "y": 14.547804492388702
+        },
+        {
+          "x": 0,
+          "y": 0
+        }
+      ],
+      "thickness": 0.3,
+      "color": "#c9cbd4",
+      "movable": false,
+      "extendable": false
+    },
+    {
+      "id": "wall_corridor_top",
+      "shape": "line",
+      "points": [
+        {
+          "x": 2.71720683868974,
+          "y": 0
+        },
+        {
+          "x": 2.71720683868974,
+          "y": 5.518701861015369
+        }
+      ],
+      "thickness": 0.25,
+      "color": "#c9cbd4",
+      "movable": false,
+      "extendable": false
+    },
+    {
+      "id": "wall_corridor_bot",
+      "shape": "line",
+      "points": [
+        {
+          "x": 2.71720683868974,
+          "y": 8.51870186101537
+        },
+        {
+          "x": 2.71720683868974,
+          "y": 14.547804492388702
+        }
+      ],
+      "thickness": 0.25,
+      "color": "#c9cbd4",
+      "movable": false,
+      "extendable": false
+    }
+  ],
+  "zones": [
+    {
+      "id": "zone_merch_0",
+      "type": "merch",
+      "name": "Merch 1",
+      "shape": "rect",
+      "x": 3.884965781276849,
+      "y": 6.680005153277648,
+      "w": 5.1548713107849355,
+      "h": 2.791408532422032,
+      "color": "#c9a15a",
+      "capacity": 20,
+      "stickiness": 18,
+      "movable": true,
+      "extendable": true
+    },
+    {
+      "id": "zone_seating_1",
+      "type": "seating",
+      "name": "Seating 2",
+      "shape": "rect",
+      "x": 4.605217107268627,
+      "y": 3.974600828482151,
+      "w": 6.158196551628661,
+      "h": 2.687008601237578,
+      "color": "#8b7fe0",
+      "capacity": 267,
+      "stickiness": 10,
+      "movable": true,
+      "extendable": true
+    },
+    {
+      "id": "zone_bar_2",
+      "type": "bar",
+      "name": "Bar 3",
+      "shape": "rect",
+      "x": 15.6718389312148,
+      "y": 6.31872756597457,
+      "w": 6.164083965528838,
+      "h": 3.028864150112279,
+      "color": "#4f8fd6",
+      "capacity": 13,
+      "stickiness": 9,
+      "movable": true,
+      "extendable": true
+    },
+    {
+      "id": "zone_restroom_3",
+      "type": "restroom",
+      "name": "Restroom 4",
+      "shape": "rect",
+      "x": 17.10318785433746,
+      "y": 1.0502939570941532,
+      "w": 3.725227534406652,
+      "h": 3.169558951403019,
+      "color": "#8a8d94",
+      "capacity": 10,
+      "stickiness": null,
+      "movable": true,
+      "extendable": true
+    }
+  ],
+  "points": [
+    {
+      "id": "point_entrance_0",
+      "type": "entrance",
+      "name": "Main Entrance",
+      "x": 0.2,
+      "y": 7.273902246194351,
+      "flowRate": 171,
+      "color": "#5bb98c",
+      "movable": false
+    },
+    {
+      "id": "point_exit_0",
+      "type": "exit",
+      "name": "Exit 1",
+      "x": 24.415170102997394,
+      "y": 8.06671466566181,
+      "flowRate": 135,
+      "color": "#e0564f",
+      "movable": false
+    },
+    {
+      "id": "point_exit_1",
+      "type": "emergency-exit",
+      "name": "Exit 2",
+      "x": 24.415170102997394,
+      "y": 3.5581942440436545,
+      "flowRate": null,
+      "color": "#5bb98c",
+      "movable": false
+    }
+  ]
+}

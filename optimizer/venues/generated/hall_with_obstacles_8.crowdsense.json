@@ -1,0 +1,185 @@
+{
+  "version": 1,
+  "meta": {
+    "name": "Generated Hall+Obstacles #8",
+    "unit": "m",
+    "createdAt": "2026-09-12T02:39:28.875938Z",
+    "updatedAt": "2026-09-12T02:39:28.875939Z"
+  },
+  "scale": {
+    "pixelsPerUnit": 20
+  },
+  "background": null,
+  "walls": [
+    {
+      "id": "wall_perimeter",
+      "shape": "line",
+      "points": [
+        {
+          "x": 0,
+          "y": 0
+        },
+        {
+          "x": 22.087084391476047,
+          "y": 0
+        },
+        {
+          "x": 22.087084391476047,
+          "y": 18.20851939308747
+        },
+        {
+          "x": 0,
+          "y": 18.20851939308747
+        },
+        {
+          "x": 0,
+          "y": 0
+        }
+      ],
+      "thickness": 0.3,
+      "color": "#c9cbd4",
+      "movable": false,
+      "extendable": false
+    },
+    {
+      "id": "wall_block_0",
+      "shape": "rect",
+      "x": 7.040634619728092,
+      "y": 3.8738633425041025,
+      "w": 3.4216016756811376,
+      "h": 3.720657139954559,
+      "color": "#c9cbd4",
+      "movable": false,
+      "extendable": false
+    }
+  ],
+  "zones": [
+    {
+      "id": "zone_stage",
+      "type": "stage",
+      "name": "Stage",
+      "shape": "rect",
+      "x": 7.162933651657417,
+      "y": 1.0,
+      "w": 7.761217088161215,
+      "h": 5.872266963245163,
+      "color": "#e0564f",
+      "capacity": null,
+      "stickiness": null,
+      "movable": false,
+      "extendable": false
+    },
+    {
+      "id": "zone_bar_0",
+      "type": "bar",
+      "name": "Bar 1",
+      "shape": "rect",
+      "x": 13.25692646974365,
+      "y": 8.092270093020472,
+      "w": 3.401082588850074,
+      "h": 3.780321256978144,
+      "color": "#4f8fd6",
+      "capacity": 12,
+      "stickiness": 13,
+      "movable": true,
+      "extendable": true
+    },
+    {
+      "id": "zone_restroom_1",
+      "type": "restroom",
+      "name": "Restroom 2",
+      "shape": "rect",
+      "x": 7.901550040260148,
+      "y": 10.228483836280732,
+      "w": 3.565752774049399,
+      "h": 4.172197133050928,
+      "color": "#8a8d94",
+      "capacity": 9,
+      "stickiness": null,
+      "movable": true,
+      "extendable": true
+    },
+    {
+      "id": "zone_merch_2",
+      "type": "merch",
+      "name": "Merch 3",
+      "shape": "rect",
+      "x": 2.2498794965979867,
+      "y": 11.623522782330163,
+      "w": 3.6673627644816893,
+      "h": 3.803008176397884,
+      "color": "#c9a15a",
+      "capacity": 20,
+      "stickiness": 16,
+      "movable": true,
+      "extendable": true
+    },
+    {
+      "id": "zone_bar_4",
+      "type": "bar",
+      "name": "Bar 5",
+      "shape": "rect",
+      "x": 17.09661563792597,
+      "y": 5.242960769269225,
+      "w": 3.6529690130618047,
+      "h": 3.7704287510374366,
+      "color": "#4f8fd6",
+      "capacity": 17,
+      "stickiness": 9,
+      "movable": true,
+      "extendable": true
+    }
+  ],
+  "points": [
+    {
+      "id": "point_exit_0",
+      "type": "exit",
+      "name": "Exit 1",
+      "x": 22.087084391476047,
+      "y": 10.521599764290976,
+      "flowRate": 106,
+      "color": "#e0564f",
+      "movable": false
+    },
+    {
+      "id": "point_exit_1",
+      "type": "exit",
+      "name": "Exit 2",
+      "x": 15.940318142520505,
+      "y": 0.0,
+      "flowRate": 85,
+      "color": "#e0564f",
+      "movable": false
+    },
+    {
+      "id": "point_exit_2",
+      "type": "exit",
+      "name": "Exit 3",
+      "x": 3.4785541480123596,
+      "y": 18.20851939308747,
+      "flowRate": 148,
+      "color": "#e0564f",
+      "movable": false
+    },
+    {
+      "id": "point_exit_3",
+      "type": "emergency-exit",
+      "name": "Exit 4",
+      "x": 0.0,
+      "y": 10.945190463492757,
+      "flowRate": null,
+      "color": "#5bb98c",
+      "movable": false
+    },
+    {
+      "id": "point_entrance_0",
+      "type": "entrance",
+      "name": "Entrance 1",
+      "x": 4.17575447498271,
+      "y": 18.20851939308747,
+      "flowRate": 128,
+      "color": "#5bb98c",
+      "movable": false
+    }
+  ]
+}

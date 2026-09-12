@@ -1,0 +1,104 @@
+{
+  "version": 1,
+  "meta": {
+    "name": "The Okanagan Golf Club - Ponderosa Room",
+    "unit": "m",
+    "createdAt": "2026-09-11T22:41:33.000Z",
+    "updatedAt": "2026-09-11T22:41:33.000Z"
+  },
+  "scale": {
+    "pixelsPerUnit": 20
+  },
+  "background": null,
+  "source": {
+    "name": "The Okanagan Golf Club - Ponderosa Room",
+    "url": "https://www.okanagangolfclub.com/resources/webcontent/okanagan_gc/ok_wedding.pdf",
+    "note": "floor plan approximated from a publicly posted booking/listing page, not an architectural drawing"
+  },
+  "walls": [
+    {
+      "id": "wall_perimeter",
+      "shape": "line",
+      "points": [
+        {
+          "x": 0,
+          "y": 0
+        },
+        {
+          "x": 14.63,
+          "y": 0
+        },
+        {
+          "x": 14.63,
+          "y": 17.68
+        },
+        {
+          "x": 0,
+          "y": 17.68
+        },
+        {
+          "x": 0,
+          "y": 0
+        }
+      ],
+      "thickness": 0.3,
+      "color": "#c9cbd4",
+      "movable": false,
+      "extendable": false
+    }
+  ],
+  "zones": [
+    {
+      "id": "zone_seating",
+      "type": "seating",
+      "name": "Dining Area",
+      "shape": "rect",
+      "x": 1,
+      "y": 1,
+      "w": 12.63,
+      "h": 12,
+      "color": "#8b7fe0",
+      "capacity": 150,
+      "stickiness": 120,
+      "movable": true,
+      "extendable": true
+    },
+    {
+      "id": "zone_bar",
+      "type": "bar",
+      "name": "Cocktail Bar",
+      "shape": "rect",
+      "x": 1,
+      "y": 14,
+      "w": 6,
+      "h": 2.5,
+      "color": "#4f8fd6",
+      "capacity": 80,
+      "stickiness": 30,
+      "movable": true,
+      "extendable": true
+    }
+  ],
+  "points": [
+    {
+      "id": "point_entrance",
+      "type": "entrance",
+      "name": "Main Entrance",
+      "x": 7.31,
+      "y": 17.68,
+      "flowRate": 90,
+      "color": "#5bb98c",
+      "movable": false
+    },
+    {
+      "id": "point_emergency_exit",
+      "type": "emergency-exit",
+      "name": "Side Emergency Exit",
+      "x": 14.63,
+      "y": 8.84,
+      "flowRate": 90,
+      "color": "#e0564f",
+      "movable": false
+    }
+  ]
+}

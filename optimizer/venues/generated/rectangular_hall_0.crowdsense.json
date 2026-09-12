@@ -1,0 +1,196 @@
+{
+  "version": 1,
+  "meta": {
+    "name": "Generated Rectangular Hall #0",
+    "unit": "m",
+    "createdAt": "2026-09-12T02:39:28.875508Z",
+    "updatedAt": "2026-09-12T02:39:28.875674Z"
+  },
+  "scale": {
+    "pixelsPerUnit": 20
+  },
+  "background": null,
+  "walls": [
+    {
+      "id": "wall_perimeter",
+      "shape": "line",
+      "points": [
+        {
+          "x": 0,
+          "y": 0
+        },
+        {
+          "x": 22.104671092225843,
+          "y": 0
+        },
+        {
+          "x": 22.104671092225843,
+          "y": 17.456679446625877
+        },
+        {
+          "x": 0,
+          "y": 17.456679446625877
+        },
+        {
+          "x": 0,
+          "y": 0
+        }
+      ],
+      "thickness": 0.3,
+      "color": "#c9cbd4",
+      "movable": false,
+      "extendable": false
+    },
+    {
+      "id": "wall_column_0",
+      "shape": "rect",
+      "x": 4.219802790765158,
+      "y": 14.012493258632881,
+      "w": 0.981923794043162,
+      "h": 0.7800003091903304,
+      "color": "#c9cbd4",
+      "movable": false,
+      "extendable": false
+    },
+    {
+      "id": "wall_column_1",
+      "shape": "rect",
+      "x": 11.650348061510353,
+      "y": 13.285019449746837,
+      "w": 0.8127332592010308,
+      "h": 1.1820448367603018,
+      "color": "#c9cbd4",
+      "movable": false,
+      "extendable": false
+    }
+  ],
+  "zones": [
+    {
+      "id": "zone_restroom_0",
+      "type": "restroom",
+      "name": "Restroom 1",
+      "shape": "rect",
+      "x": 2.63433519120326,
+      "y": 3.1213747075833242,
+      "w": 6.332432775247865,
+      "h": 4.170092044369039,
+      "color": "#8a8d94",
+      "capacity": 5,
+      "stickiness": null,
+      "movable": true,
+      "extendable": true
+    },
+    {
+      "id": "zone_bar_1",
+      "type": "bar",
+      "name": "Bar 2",
+      "shape": "rect",
+      "x": 12.136391261183213,
+      "y": 2.0591336010090115,
+      "w": 4.334421540498962,
+      "h": 3.967797428539707,
+      "color": "#4f8fd6",
+      "capacity": 14,
+      "stickiness": 10,
+      "movable": true,
+      "extendable": true
+    },
+    {
+      "id": "zone_seating_2",
+      "type": "seating",
+      "name": "Seating 3",
+      "shape": "rect",
+      "x": 15.13981101715309,
+      "y": 7.408714501514876,
+      "w": 5.163668396920857,
+      "h": 4.951350835410774,
+      "color": "#8b7fe0",
+      "capacity": 186,
+      "stickiness": 10,
+      "movable": true,
+      "extendable": true
+    },
+    {
+      "id": "zone_merch_3",
+      "type": "merch",
+      "name": "Merch 4",
+      "shape": "rect",
+      "x": 6.747227499279218,
+      "y": 9.439457904858763,
+      "w": 6.542950590286027,
+      "h": 2.5874779726217128,
+      "color": "#c9a15a",
+      "capacity": 15,
+      "stickiness": 18,
+      "movable": true,
+      "extendable": true
+    },
+    {
+      "id": "zone_restroom_4",
+      "type": "restroom",
+      "name": "Restroom 5",
+      "shape": "rect",
+      "x": 0.5095916637287601,
+      "y": 11.264881913781887,
+      "w": 3.2563890305587444,
+      "h": 5.068410355253485,
+      "color": "#8a8d94",
+      "capacity": 9,
+      "stickiness": null,
+      "movable": true,
+      "extendable": true
+    }
+  ],
+  "points": [
+    {
+      "id": "point_exit_0",
+      "type": "exit",
+      "name": "Exit 1",
+      "x": 18.38402995386539,
+      "y": 0.0,
+      "flowRate": 119,
+      "color": "#e0564f",
+      "movable": false
+    },
+    {
+      "id": "point_exit_1",
+      "type": "exit",
+      "name": "Exit 2",
+      "x": 22.104671092225843,
+      "y": 4.106604429507692,
+      "flowRate": 180,
+      "color": "#e0564f",
+      "movable": false
+    },
+    {
+      "id": "point_exit_2",
+      "type": "exit",
+      "name": "Exit 3",
+      "x": 0.0,
+      "y": 9.268972596305492,
+      "flowRate": 176,
+      "color": "#e0564f",
+      "movable": false
+    },
+    {
+      "id": "point_exit_3",
+      "type": "emergency-exit",
+      "name": "Exit 4",
+      "x": 13.908620060125317,
+      "y": 17.456679446625877,
+      "flowRate": null,
+      "color": "#5bb98c",
+      "movable": false
+    },
+    {
+      "id": "point_entrance_0",
+      "type": "entrance",
+      "name": "Entrance 1",
+      "x": 1.9349146687183123,
+      "y": 17.456679446625877,
+      "flowRate": 137,
+      "color": "#5bb98c",
+      "movable": false
+    }
+  ]
+}

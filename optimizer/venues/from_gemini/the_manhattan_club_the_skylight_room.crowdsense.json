@@ -1,0 +1,100 @@
+{
+  "version": 1,
+  "meta": {
+    "name": "The Manhattan Club - The Skylight Room",
+    "unit": "m",
+    "createdAt": "2026-09-11T22:41:33.000Z",
+    "updatedAt": "2026-09-11T22:41:33.000Z"
+  },
+  "scale": {
+    "pixelsPerUnit": 20
+  },
+  "background": null,
+  "source": {
+    "name": "The Manhattan Club - The Skylight Room",
+    "url": "https://www.rosienye.nodeaxan.com/_astro/mm-specs.a9b64073.pdf",
+    "note": "floor plan approximated from a publicly posted booking/listing page, not an architectural drawing"
+  },
+  "walls": [
+    {
+      "id": "wall_perimeter",
+      "shape": "line",
+      "points": [
+        {
+          "x": 0,
+          "y": 0
+        },
+        {
+          "x": 14.5,
+          "y": 0
+        },
+        {
+          "x": 14.5,
+          "y": 21.8
+        },
+        {
+          "x": 0,
+          "y": 21.8
+        },
+        {
+          "x": 0,
+          "y": 0
+        }
+      ],
+      "thickness": 0.3,
+      "color": "#c9cbd4",
+      "movable": false,
+      "extendable": false
+    },
+    {
+      "id": "wall_bar_island",
+      "shape": "rect",
+      "x": 5,
+      "y": 10,
+      "w": 4.5,
+      "h": 2,
+      "color": "#c9cbd4",
+      "movable": true,
+      "extendable": false
+    }
+  ],
+  "zones": [
+    {
+      "id": "zone_cocktail_reception",
+      "type": "bar",
+      "name": "Cocktail Reception Area",
+      "shape": "rect",
+      "x": 1,
+      "y": 1,
+      "w": 12.5,
+      "h": 19.8,
+      "color": "#4f8fd6",
+      "capacity": 275,
+      "stickiness": 60,
+      "movable": true,
+      "extendable": true
+    }
+  ],
+  "points": [
+    {
+      "id": "point_skylight_entry",
+      "type": "entrance",
+      "name": "Main Doors",
+      "x": 7.25,
+      "y": 21.8,
+      "flowRate": 150,
+      "color": "#5bb98c",
+      "movable": false
+    },
+    {
+      "id": "point_fire_exit",
+      "type": "emergency-exit",
+      "name": "Fire Exit",
+      "x": 14.5,
+      "y": 10.9,
+      "flowRate": 90,
+      "color": "#e0564f",
+      "movable": false
+    }
+  ]
+}
