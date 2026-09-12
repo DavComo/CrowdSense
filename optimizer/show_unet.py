@@ -3,7 +3,10 @@
 Three columns: what the simulator produced, what the U-Net predicted for the
 same layout, and the error. One row per scenario. This is the slide that says
 the surrogate learned the physics rather than memorizing a mean.
+
+    python3 show_unet.py --venue path/to/your.crowdsense.json
 """
+import argparse
 import os
 import numpy as np, matplotlib; matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -12,16 +15,26 @@ import torch
 import arena, sim, unet, factory
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
-venue_path = next(p for p in [os.path.join(_HERE, "..", "examples", "sample-venue.json"),
-                               os.path.join(_HERE, "sample-venue.json")] if os.path.exists(p))
+_ap = argparse.ArgumentParser()
+_ap.add_argument("--venue", default=None)
+_args = _ap.parse_args()
+
+venue_path = _args.venue or arena.default_venue_path(_HERE)
+STEM = arena.venue_stem(venue_path)
 venue = arena.load(venue_path)
 spec = arena.build_spec(venue)
 raster = unet.Raster(venue, spec)
 
-d = np.load(os.path.join(_HERE, "data", "shard_000.npz"), allow_pickle=True)
+data_path = os.path.join(_HERE, "data", f"shard_{STEM}.npz")
+surrogate_path = os.path.join(_HERE, f"unet_surrogate_{STEM}.pt")
+if not os.path.exists(data_path) or not os.path.exists(surrogate_path):
+    raise SystemExit(f"missing {data_path if not os.path.exists(data_path) else surrogate_path}\n"
+                     f"run:  python3 factory.py --venue {venue_path} --n 700 && "
+                     f"python3 run_unet_pipeline.py --venue {venue_path}")
+d = np.load(data_path, allow_pickle=True)
 X, Ym, Ys = d["X"], d["Y_maps"], d["Y_scal"]
 net = unet.UNet().to(unet.DEVICE)
-net.load_state_dict(torch.load(os.path.join(_HERE, "unet_surrogate.pt"), map_location=unet.DEVICE))
+net.load_state_dict(torch.load(surrogate_path, map_location=unet.DEVICE))
 net.eval()
 
 # a layout the net never trained on: the factory holds out the same split
@@ -61,6 +74,6 @@ fig.suptitle("U-Net surrogate vs the Hughes simulator — peak density, held-out
              "(the surrogate is what the search descends through; every candidate is re-simulated before it counts)",
              fontsize=11, weight="bold")
 plt.tight_layout(rect=[0, 0, 1, 0.94])
-out = os.path.join(_HERE, "unet_vs_sim.png")
+out = os.path.join(_HERE, f"unet_vs_sim_{STEM}.png")
 plt.savefig(out, dpi=140)
 print(f"wrote {out}")

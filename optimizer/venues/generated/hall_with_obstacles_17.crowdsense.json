@@ -1,0 +1,201 @@
+{
+  "version": 1,
+  "meta": {
+    "name": "Generated Hall+Obstacles #17",
+    "unit": "m",
+    "createdAt": "2026-09-12T06:27:00.900625Z",
+    "updatedAt": "2026-09-12T06:27:00.900626Z"
+  },
+  "scale": {
+    "pixelsPerUnit": 20
+  },
+  "background": null,
+  "walls": [
+    {
+      "id": "wall_perimeter",
+      "shape": "line",
+      "points": [
+        {
+          "x": 0,
+          "y": 0
+        },
+        {
+          "x": 21.112268752618075,
+          "y": 0
+        },
+        {
+          "x": 21.112268752618075,
+          "y": 17.154575414866244
+        },
+        {
+          "x": 0,
+          "y": 17.154575414866244
+        },
+        {
+          "x": 0,
+          "y": 0
+        }
+      ],
+      "thickness": 0.3,
+      "color": "#c9cbd4",
+      "movable": false,
+      "extendable": false
+    },
+    {
+      "id": "wall_block_0",
+      "shape": "rect",
+      "x": 8.50040830954605,
+      "y": 4.795610613313373,
+      "w": 2.0637909144917512,
+      "h": 3.101773676160674,
+      "color": "#c9cbd4",
+      "movable": false,
+      "extendable": false
+    },
+    {
+      "id": "wall_block_1",
+      "shape": "rect",
+      "x": 13.375016874554591,
+      "y": 6.490113158696257,
+      "w": 2.6186479993611123,
+      "h": 1.93317613140867,
+      "color": "#c9cbd4",
+      "movable": false,
+      "extendable": false
+    }
+  ],
+  "zones": [
+    {
+      "id": "zone_stage",
+      "type": "stage",
+      "name": "Stage",
+      "shape": "rect",
+      "x": 6.9967451543249775,
+      "y": 1.0,
+      "w": 7.11877844396812,
+      "h": 4.711884305646251,
+      "color": "#e0564f",
+      "capacity": null,
+      "stickiness": null,
+      "movable": false,
+      "extendable": false
+    },
+    {
+      "id": "zone_merch_0",
+      "type": "merch",
+      "name": "Merch 1",
+      "shape": "rect",
+      "x": 11.371120288355781,
+      "y": 9.607001062645228,
+      "w": 7.220208866046132,
+      "h": 2.4372468360544834,
+      "color": "#c9a15a",
+      "capacity": 10,
+      "stickiness": 24,
+      "movable": true,
+      "extendable": true
+    },
+    {
+      "id": "zone_restroom_1",
+      "type": "restroom",
+      "name": "Restroom 2",
+      "shape": "rect",
+      "x": 2.8003439038023146,
+      "y": 8.423344184692969,
+      "w": 5.676432025052879,
+      "h": 2.730240259248231,
+      "color": "#8a8d94",
+      "capacity": null,
+      "stickiness": null,
+      "movable": true,
+      "extendable": true
+    },
+    {
+      "id": "zone_bar_2",
+      "type": "bar",
+      "name": "Bar 3",
+      "shape": "rect",
+      "x": 2.4315999382307947,
+      "y": 3.2076610185125545,
+      "w": 4.104224965381016,
+      "h": 4.812397403030919,
+      "color": "#4f8fd6",
+      "capacity": 23,
+      "stickiness": 42,
+      "movable": true,
+      "extendable": true
+    },
+    {
+      "id": "zone_seating_3",
+      "type": "seating",
+      "name": "Seating 4",
+      "shape": "rect",
+      "x": 2.584469966800191,
+      "y": 13.073337752483098,
+      "w": 3.7109089369037065,
+      "h": 3.2831084825325583,
+      "color": "#8b7fe0",
+      "capacity": 11,
+      "stickiness": 63,
+      "movable": true,
+      "extendable": true
+    },
+    {
+      "id": "zone_merch_4",
+      "type": "merch",
+      "name": "Merch 5",
+      "shape": "rect",
+      "x": 10.19494811360905,
+      "y": 13.388459167601065,
+      "w": 5.476191978393998,
+      "h": 1.7070340400766977,
+      "color": "#c9a15a",
+      "capacity": 10,
+      "stickiness": 25,
+      "movable": true,
+      "extendable": true
+    }
+  ],
+  "points": [
+    {
+      "id": "point_exit_0",
+      "type": "exit",
+      "name": "Exit 1",
+      "x": 16.46937908374926,
+      "y": 17.154575414866244,
+      "flowRate": 122,
+      "color": "#e0564f",
+      "movable": false
+    },
+    {
+      "id": "point_exit_1",
+      "type": "exit",
+      "name": "Exit 2",
+      "x": 21.112268752618075,
+      "y": 15.559435987207115,
+      "flowRate": 171,
+      "color": "#e0564f",
+      "movable": false
+    },
+    {
+      "id": "point_exit_2",
+      "type": "emergency-exit",
+      "name": "Exit 3",
+      "x": 1.5149627072712246,
+      "y": 0.0,
+      "flowRate": null,
+      "color": "#5bb98c",
+      "movable": false
+    },
+    {
+      "id": "point_entrance_0",
+      "type": "entrance",
+      "name": "Entrance 1",
+      "x": 4.454701052860798,
+      "y": 17.154575414866244,
+      "flowRate": 206,
+      "color": "#5bb98c",
+      "movable": false
+    }
+  ]
+}

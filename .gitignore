@@ -59,3 +59,11 @@ __pycache__/
 *.pyc
 .venv/
 *.npz
+
+# CrowdSense optimizer: regeneratable training data and model checkpoints --
+# large, reproducible via factory.py/factory_multi.py, not meant to live in git
+optimizer/data/*.npz
+optimizer/*.pt
+.DS_Store
+optimizer/.DS_Store
+optimizer/venues/.DS_Store

@@ -3,8 +3,8 @@
   "meta": {
     "name": "Generated Rectangular Hall #3",
     "unit": "m",
-    "createdAt": "2026-09-12T02:39:28.875816Z",
-    "updatedAt": "2026-09-12T02:39:28.875818Z"
+    "createdAt": "2026-09-12T06:27:00.900255Z",
+    "updatedAt": "2026-09-12T06:27:00.900256Z"
   },
   "scale": {
     "pixelsPerUnit": 20
@@ -20,16 +20,16 @@
           "y": 0
         },
         {
-          "x": 26.816283185873537,
+          "x": 12.9994568754496,
           "y": 0
         },
         {
-          "x": 26.816283185873537,
-          "y": 17.324819269063834
+          "x": 12.9994568754496,
+          "y": 18.121349231178183
         },
         {
           "x": 0,
-          "y": 17.324819269063834
+          "y": 18.121349231178183
         },
         {
           "x": 0,
@@ -40,58 +40,36 @@
       "color": "#c9cbd4",
       "movable": false,
       "extendable": false
-    },
-    {
-      "id": "wall_column_0",
-      "shape": "rect",
-      "x": 13.536900290124123,
-      "y": 5.708855452836028,
-      "w": 0.8251343461554531,
-      "h": 0.771496741071036,
-      "color": "#c9cbd4",
-      "movable": false,
-      "extendable": false
-    },
-    {
-      "id": "wall_column_1",
-      "shape": "rect",
-      "x": 19.398548009986456,
-      "y": 10.418523571484547,
-      "w": 0.6626223436978824,
-      "h": 0.7544148404037878,
-      "color": "#c9cbd4",
-      "movable": false,
-      "extendable": false
     }
   ],
   "zones": [
     {
-      "id": "zone_bar_0",
-      "type": "bar",
-      "name": "Bar 1",
+      "id": "zone_merch_0",
+      "type": "merch",
+      "name": "Merch 1",
       "shape": "rect",
-      "x": 19.154413800696343,
-      "y": 3.4617410577041827,
-      "w": 6.193582940060438,
-      "h": 3.22289509043867,
-      "color": "#4f8fd6",
-      "capacity": 18,
-      "stickiness": 17,
+      "x": 7.367636181521253,
+      "y": 9.76746344399739,
+      "w": 3.3311964100543845,
+      "h": 4.106244409057117,
+      "color": "#c9a15a",
+      "capacity": 10,
+      "stickiness": 15,
       "movable": true,
       "extendable": true
     },
     {
-      "id": "zone_merch_1",
-      "type": "merch",
-      "name": "Merch 2",
+      "id": "zone_bar_1",
+      "type": "bar",
+      "name": "Bar 2",
       "shape": "rect",
-      "x": 20.26481526921371,
-      "y": 9.846191374299822,
-      "w": 3.8984662761602387,
-      "h": 4.289805339916885,
-      "color": "#c9a15a",
-      "capacity": 14,
-      "stickiness": 21,
+      "x": 3.3594808532176312,
+      "y": 11.082726167537547,
+      "w": 2.8078368387587918,
+      "h": 4.79564141076386,
+      "color": "#4f8fd6",
+      "capacity": 21,
+      "stickiness": 32,
       "movable": true,
       "extendable": true
     },
@@ -100,13 +78,28 @@
       "type": "restroom",
       "name": "Restroom 3",
       "shape": "rect",
-      "x": 5.164041642846654,
-      "y": 8.208626753652716,
-      "w": 4.354160868012791,
-      "h": 5.077756627456182,
+      "x": 5.250362981216844,
+      "y": 2.81558678614096,
+      "w": 3.6248393006251427,
+      "h": 3.6774046492128014,
       "color": "#8a8d94",
-      "capacity": 8,
+      "capacity": null,
       "stickiness": null,
+      "movable": true,
+      "extendable": true
+    },
+    {
+      "id": "zone_seating_3",
+      "type": "seating",
+      "name": "Seating 4",
+      "shape": "rect",
+      "x": 3.2439617062140322,
+      "y": 6.583672342925025,
+      "w": 3.3574768374965567,
+      "h": 2.5475551127382783,
+      "color": "#8b7fe0",
+      "capacity": 10,
+      "stickiness": 116,
       "movable": true,
       "extendable": true
     }
@@ -117,8 +110,8 @@
       "type": "exit",
       "name": "Exit 1",
       "x": 0.0,
-      "y": 7.868708567210456,
-      "flowRate": 149,
+      "y": 14.797162484185664,
+      "flowRate": 174,
       "color": "#e0564f",
       "movable": false
     },
@@ -126,9 +119,9 @@
       "id": "point_exit_1",
       "type": "exit",
       "name": "Exit 2",
-      "x": 16.615598675083973,
-      "y": 0.0,
-      "flowRate": 96,
+      "x": 12.9994568754496,
+      "y": 10.68191946557959,
+      "flowRate": 108,
       "color": "#e0564f",
       "movable": false
     },
@@ -136,8 +129,8 @@
       "id": "point_exit_2",
       "type": "emergency-exit",
       "name": "Exit 3",
-      "x": 2.0835895252249075,
-      "y": 17.324819269063834,
+      "x": 4.459260193258957,
+      "y": 18.121349231178183,
       "flowRate": null,
       "color": "#5bb98c",
       "movable": false
@@ -146,9 +139,9 @@
       "id": "point_entrance_0",
       "type": "entrance",
       "name": "Entrance 1",
-      "x": 10.597465423538173,
-      "y": 17.324819269063834,
-      "flowRate": 160,
+      "x": 6.741791641193686,
+      "y": 18.121349231178183,
+      "flowRate": 214,
       "color": "#5bb98c",
       "movable": false
     },
@@ -156,9 +149,9 @@
       "id": "point_entrance_1",
       "type": "entrance",
       "name": "Entrance 2",
-      "x": 19.11432173403611,
-      "y": 17.324819269063834,
-      "flowRate": 217,
+      "x": 3.7210827305394765,
+      "y": 18.121349231178183,
+      "flowRate": 120,
       "color": "#5bb98c",
       "movable": false
     },
@@ -166,9 +159,9 @@
       "id": "point_entrance_2",
       "type": "entrance",
       "name": "Entrance 3",
-      "x": 5.989518053285802,
-      "y": 17.324819269063834,
-      "flowRate": 116,
+      "x": 5.5500145379663905,
+      "y": 18.121349231178183,
+      "flowRate": 163,
       "color": "#5bb98c",
       "movable": false
     }

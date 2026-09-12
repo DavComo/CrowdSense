@@ -1,0 +1,135 @@
+{
+  "version": 1,
+  "meta": {
+    "name": "Generated Hall+Obstacles #14",
+    "unit": "m",
+    "createdAt": "2026-09-12T06:27:00.900556Z",
+    "updatedAt": "2026-09-12T06:27:00.900556Z"
+  },
+  "scale": {
+    "pixelsPerUnit": 20
+  },
+  "background": null,
+  "walls": [
+    {
+      "id": "wall_perimeter",
+      "shape": "line",
+      "points": [
+        {
+          "x": 0,
+          "y": 0
+        },
+        {
+          "x": 16.31275902795118,
+          "y": 0
+        },
+        {
+          "x": 16.31275902795118,
+          "y": 18.816691468638624
+        },
+        {
+          "x": 0,
+          "y": 18.816691468638624
+        },
+        {
+          "x": 0,
+          "y": 0
+        }
+      ],
+      "thickness": 0.3,
+      "color": "#c9cbd4",
+      "movable": false,
+      "extendable": false
+    },
+    {
+      "id": "wall_block_0",
+      "shape": "rect",
+      "x": 4.717696633165804,
+      "y": 7.092595560481127,
+      "w": 3.1533647690048436,
+      "h": 3.939842557173912,
+      "color": "#c9cbd4",
+      "movable": false,
+      "extendable": false
+    }
+  ],
+  "zones": [
+    {
+      "id": "zone_stage",
+      "type": "stage",
+      "name": "Stage",
+      "shape": "rect",
+      "x": 3.3947662920959756,
+      "y": 1.0,
+      "w": 9.52322644375923,
+      "h": 3.8689711043093595,
+      "color": "#e0564f",
+      "capacity": null,
+      "stickiness": null,
+      "movable": false,
+      "extendable": false
+    },
+    {
+      "id": "zone_restroom_0",
+      "type": "restroom",
+      "name": "Restroom 1",
+      "shape": "rect",
+      "x": 8.87676733568625,
+      "y": 10.19034794969282,
+      "w": 2.394770137116328,
+      "h": 3.651222467556653,
+      "color": "#8a8d94",
+      "capacity": null,
+      "stickiness": null,
+      "movable": true,
+      "extendable": true
+    },
+    {
+      "id": "zone_merch_1",
+      "type": "merch",
+      "name": "Merch 2",
+      "shape": "rect",
+      "x": 8.80738940535367,
+      "y": 14.84368880886334,
+      "w": 5.541005358827707,
+      "h": 3.000015134128863,
+      "color": "#c9a15a",
+      "capacity": 10,
+      "stickiness": 18,
+      "movable": true,
+      "extendable": true
+    }
+  ],
+  "points": [
+    {
+      "id": "point_exit_0",
+      "type": "exit",
+      "name": "Exit 1",
+      "x": 16.31275902795118,
+      "y": 8.225616243183921,
+      "flowRate": 124,
+      "color": "#e0564f",
+      "movable": false
+    },
+    {
+      "id": "point_exit_1",
+      "type": "emergency-exit",
+      "name": "Exit 2",
+      "x": 11.827120935237671,
+      "y": 0.0,
+      "flowRate": null,
+      "color": "#5bb98c",
+      "movable": false
+    },
+    {
+      "id": "point_entrance_0",
+      "type": "entrance",
+      "name": "Entrance 1",
+      "x": 12.928588401041925,
+      "y": 18.816691468638624,
+      "flowRate": 212,
+      "color": "#5bb98c",
+      "movable": false
+    }
+  ]
+}

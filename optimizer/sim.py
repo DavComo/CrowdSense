@@ -528,8 +528,17 @@ def check_feasible(vg, cfg):
         if not tgt:
             return False, f"class {c['id']!r} has population but no reachable target cell"
         phi = eikonal(free_cost, walkable, tgt, vg.dx)
-        if not np.isfinite(phi[tuple(np.array(origins).T)]).any():
-            return False, f"class {c['id']!r}'s source is disconnected from its target"
+        reachable = np.isfinite(phi[tuple(np.array(origins).T)])
+        # a real failure mode, not a hypothetical: an oversized `extendable`
+        # zone straddling a movable wall's new position can have MOST of its
+        # footprint on the exit side and a real pocket of it walled off on
+        # the other -- `.any()` (at least one origin cell escapes) missed
+        # this entirely and let the search ship a layout that stranded 8.6%
+        # of its population, caught only after a full 3000-step re-sim.
+        # >=99% matches this project's own 1% clipped-mass tolerance.
+        if reachable.mean() < 0.99:
+            return False, (f"class {c['id']!r}: only {100*reachable.mean():.0f}% of its "
+                           f"source cells can reach its target")
     if cfg["name"] in ("evacuation", "ingress_egress") and not vg.exits:
         return False, "no exit exists for a scenario that requires one"
     return True, ""
@@ -537,9 +546,13 @@ def check_feasible(vg, cfg):
 
 # --- 4.4/4.6 the time stepper ---------------------------------------------
 def run(vg, scenario="evacuation", incident=None, horizon=HORIZON, dt=DT,
-        route_every=ROUTE_EVERY, rho_safe=RHO_SAFE, record_every=10, rng=None):
+        route_every=ROUTE_EVERY, rho_safe=RHO_SAFE, record_every=10, rng=None,
+        record_frames=False):
     """One scenario on one layout. Multi-class: rho[k] is the part of the
-    crowd headed for destination k. Returns metrics, cost and maps."""
+    crowd headed for destination k. Returns metrics, cost and maps.
+    record_frames=True additionally returns "frames"/"frame_t": a movie of
+    rho_tot every `record_every` steps, for visualization -- off by default
+    since it costs memory nobody wants during factory generation."""
     cfg = make_scenario(vg, scenario, incident=incident, rng=rng) if isinstance(scenario, str) else scenario
     walkable = vg.walkable.copy()
     dx, dA = vg.dx, vg.dA
@@ -552,7 +565,7 @@ def run(vg, scenario="evacuation", incident=None, horizon=HORIZON, dt=DT,
              "ingress_peak_rho": None, "egress_peak_rho": None, "phase_switch_t": None,
              "n_in": 0.0, "n_out": 0.0, "n_inside": 0.0, "n_clipped": 0.0,
              "ledger_error": 0.0, "steps": 0, "area": vg.area, "incidents": [],
-             "n_unplaced": 0.0, "rejected": False, "reject_reason": ""}
+             "n_unplaced": 0.0, "rejected": False, "reject_reason": "", "frames": [], "frame_t": []}
     if not classes or not walkable.any():
         return empty
 
@@ -609,6 +622,7 @@ def run(vg, scenario="evacuation", incident=None, horizon=HORIZON, dt=DT,
     ingress_peak_rho = None
     egress_peak_rho = None
     phase_switch_t = None
+    frames, frame_t = [], []
 
     steps = int(horizon / dt)
     for step in range(steps):
@@ -885,6 +899,8 @@ def run(vg, scenario="evacuation", incident=None, horizon=HORIZON, dt=DT,
             u_y = sum(f * ey[k] * rho[k] for k in range(K))
             denom = np.maximum(rho.sum(0), 1e-9)
             max_p = max(max_p, float(pressure_proxy(rho_tot, u_x / denom, u_y / denom, walkable).max()))
+            if record_frames:
+                frames.append(rho_tot.copy()); frame_t.append(t)
 
         # v0.2 4.9: for a phased run, T95 is EGRESS time -- seconds after
         # T_in, not from t=0 (ingress has no exits open, so N_out can't move
@@ -924,6 +940,7 @@ def run(vg, scenario="evacuation", incident=None, horizon=HORIZON, dt=DT,
         "area": vg.area,
         "incidents": [i["label"] for i in fired],
         "n_unplaced": n_unplaced,
+        "frames": frames, "frame_t": frame_t,
     }
 
 
@@ -1217,40 +1234,72 @@ def cost_from_density(rho_map, dA, rho_safe=RHO_SAFE, p=COST_P, k=COST_K):
     }
 
 
-def appraise(result, density_model=None):
-    """Score one scenario. `cost` is a function of ONE variable: density.
+def appraise(result, density_model=None, time_aware=True):
+    """Score one scenario. `cost` is a function of ONE variable: density --
+    still true here, just integrated over its full domain (space AND time)
+    instead of collapsed to a peak-over-time snapshot first.
 
-    Specifically: the Hackathon.docx excess-magnitude penalty (softplus form,
-    gradient-safe) applied to the scenario's PEAK density map -- the sim's
-    own peak_rho by default, or the teammates' equation once it is plugged
-    into DENSITY_MODEL -- normalized per m^2 of venue. Nothing else is
-    blended in: not T95, not the danger-area threshold count, not the
-    velocity-based pressure proxy, not a disconnection or capacity-fit
-    penalty. Those are still computed and returned because the design doc's
-    4.9 wants them reported, and because they matter for the demo slide, but
-    none of them enter `cost` -- that number is density and only density.
+    Why this changed: the peak-density MAP (max_t rho at each cell) cannot
+    tell a cell that was briefly crowded apart from one that stayed crowded
+    the entire run -- both just show up as "reached X". Measured on a real
+    before/after pair: the peak-map cost called it a 39% improvement, but a
+    genuinely time-integrated view (area over rho_safe, summed over every
+    second, not just ever-reached) showed only +3%, because the "after"
+    layout was briefly WORSE before pulling ahead. Rewarding "shrink the
+    area that ever gets crowded" without also rewarding "shorten how long
+    it stays crowded" is a real gap in the metric, not a hypothetical one.
 
-    Known tradeoff of that purity, worth watching rather than hiding: a
-    layout that traps a small, low-density pocket of people who can never
-    reach an exit (`disconnected=True`) will not be penalized by `cost` if
-    that pocket never gets dense enough to cross rho_safe. Filter on
+    The fix uses a quantity `run()` already computes exactly, correctly,
+    every timestep: C_smooth = sum over every cell AND every step of the
+    softplus excess-density penalty (Hackathon.docx's own smooth form) x
+    cell area x dt. A cell over threshold for 3s contributes ~3s worth of
+    penalty; a cell over threshold for 200s contributes ~200s worth. That
+    IS "one variable, density" -- integrated over space and time, which is
+    what a physical density field actually has, rather than reduced to a
+    single number (its peak) before scoring it.
+
+    For a DENSITY_MODEL that returns one static map (the fast flux-inversion
+    estimate, or a future teammates' equation) there is no time series to
+    integrate, so that map's pattern is treated as sustained for the whole
+    scenario (the same approximation the old peak-map cost always implied);
+    `time_aware=False` also selects this path explicitly.
+
+    Nothing else is blended in: not T95, not the danger-area threshold
+    count, not the velocity-based pressure proxy, not a disconnection or
+    capacity-fit penalty. Those are still computed and returned because the
+    design doc's 4.9 wants them reported, but none of them enter `cost`.
+
+    Known tradeoff, still true, worth watching rather than hiding: a layout
+    that traps a small, low-density pocket of people who can never reach an
+    exit (`disconnected=True`) will not be penalized by `cost` if that
+    pocket never gets dense enough to cross rho_safe. Filter on
     `disconnected` explicitly wherever a candidate layout is accepted or
     rejected -- don't rely on `cost` alone to catch it."""
     area = max(result["area"], 1e-9)
-
-    # the density MAP this scenario is judged on -- the sim's peak map by
-    # default, the teammates' equation once it is plugged into DENSITY_MODEL
     model = density_model or DENSITY_MODEL
-    rho_map = result.get("density_map")
-    if rho_map is None:
-        rho_map = model(result["_vg"], result["_cfg"], result) if "_vg" in result else result["peak_rho"]
-        result["density_map"] = rho_map
-    map_terms = cost_from_density(rho_map, result.get("dA", DX * DX))
+    using_default_model = density_model is None or density_model is DENSITY_MODEL
+
+    if time_aware and using_default_model and result.get("steps", 0) > 0:
+        # the real thing: an exact time integral, already computed per step
+        span = max(result["steps"] * DT, DT)
+        smooth = result["C_smooth"] / area / span
+        severity = result["C_severity"] / area / span
+        max_density = float(result["peak_rho"].max())
+    else:
+        # a static map (a hook model, or time_aware=False): its pattern is
+        # assumed sustained for the whole run -- same approximation the
+        # cost always made before this fix, kept as the fallback.
+        rho_map = result.get("density_map")
+        if rho_map is None:
+            rho_map = model(result["_vg"], result["_cfg"], result) if "_vg" in result else result["peak_rho"]
+            result["density_map"] = rho_map
+        map_terms = cost_from_density(rho_map, result.get("dA", DX * DX))
+        smooth, severity, max_density = map_terms["smooth"] / area, map_terms["severity"] / area, map_terms["max_density"]
 
     return {
-        "cost": map_terms["smooth"] / area,              # <- the ONE trained/optimized number
-        "severity": map_terms["severity"] / area,        # same penalty, non-smooth twin (diagnostic)
-        "max_density": map_terms["max_density"],
+        "cost": smooth,                                   # <- the ONE trained/optimized number
+        "severity": severity,                              # same penalty, non-smooth twin (diagnostic)
+        "max_density": max_density,
         # design doc 4.9 diagnostics -- reported, NOT part of cost
         "T95": result["T95"],
         "T95_reached": result["T95_reached"],

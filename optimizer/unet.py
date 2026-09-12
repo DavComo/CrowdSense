@@ -46,20 +46,41 @@ def _sig(x, tau):
 class Raster:
     """Draws the venue's input channels from a layout vector u, in torch.
     Fixed structure is baked once from the real raster; movable elements are
-    drawn softly so d(channels)/du exists."""
+    drawn softly so d(channels)/du exists.
 
-    def __init__(self, venue, spec, dx=sim.DX, tau=0.15):
+    `canon_hw`, when given (e.g. (64, 64)), forces a FIXED grid size shared
+    by every venue -- design doc 6.2's input is x[4,64,64] specifically so
+    ONE U-Net can train across many different room shapes; a per-venue grid
+    size (the default here, sized to each venue's own extent) works for
+    optimizing one venue but can't be pooled into a cross-venue dataset,
+    since np.stack needs every sample the same shape. Larger venues get
+    cropped to the canonical window (from the room's own origin); smaller
+    ones get padded with not-walkable, same as before -- either way the
+    real geometry is computed at the venue's true size first and then
+    embedded into (or cropped into) the fixed canvas, never rescaled, so a
+    wall is still exactly as many metres wide as it was drawn."""
+
+    def __init__(self, venue, spec, dx=sim.DX, tau=0.15, canon_hw=None):
         self.venue, self.spec, self.dx, self.tau = venue, spec, dx, tau
         H, W = arena._grid_shape(spec.room, dx)
         self.H0, self.W0 = H, W
-        self.H, self.W = math.ceil(H / PAD_TO) * PAD_TO, math.ceil(W / PAD_TO) * PAD_TO
+        if canon_hw:
+            self.H, self.W = canon_hw
+        else:
+            self.H, self.W = math.ceil(H / PAD_TO) * PAD_TO, math.ceil(W / PAD_TO) * PAD_TO
+        Hc, Wc = min(H, self.H), min(W, self.W)   # the overlap actually copied in
         rx0, ry0, _, _ = spec.room
         ys = ry0 + (torch.arange(self.H, dtype=torch.float32) + 0.5) * dx
         xs = rx0 + (torch.arange(self.W, dtype=torch.float32) + 0.5) * dx
         self.Y, self.X = torch.meshgrid(ys, xs, indexing="ij")       # [H, W] world coords
         self.dA = dx * dx
 
-        # fixed structure, straight from the real raster (constant tensors)
+        # fixed structure, straight from the real raster (constant tensors),
+        # computed at the venue's TRUE size (spec.room) so geometry is never
+        # distorted, then embedded into the (possibly different-sized)
+        # canonical canvas. Padding/cropped-away cells stay at their
+        # zero-init, i.e. not-walkable -- there is no fake open floor beyond
+        # the real venue's own walls.
         movable_none = {}
         geo = arena._effective_geo(venue, movable_none)
         fixed_venue = {**venue,
@@ -68,25 +89,31 @@ class Raster:
         obstacle = arena._build_obstacle(fixed_venue, geo, spec.room, cell=dx)
         vg = sim.Venue(fixed_venue, {}, spec.room, dx=dx)   # carves doors, finds fixed attractors
         base = torch.zeros(self.H, self.W)
-        base[:H, :W] = torch.from_numpy((~obstacle).astype(np.float32))
-        base[:H, :W] *= torch.from_numpy(vg.walkable.astype(np.float32))  # doors carved
+        base[:Hc, :Wc] = torch.from_numpy((~obstacle).astype(np.float32))[:Hc, :Wc]
+        base[:Hc, :Wc] *= torch.from_numpy(vg.walkable.astype(np.float32))[:Hc, :Wc]  # doors carved
         self.base_walkable = base
-        self.in_grid = torch.zeros(self.H, self.W); self.in_grid[:H, :W] = 1.0
+        self.in_grid = torch.zeros(self.H, self.W); self.in_grid[:Hc, :Wc] = 1.0
+
+        def _in_canon(r, c):
+            return 0 <= r < self.H and 0 <= c < self.W
 
         ent = torch.zeros(self.H, self.W); ex = torch.zeros(self.H, self.W)
         for e in vg.entrances:
             for (r, c) in e["cells"]:
-                ent[r, c] += e["rate"] / (len(e["cells"]) * self.dA)
+                if _in_canon(r, c):
+                    ent[r, c] += e["rate"] / (len(e["cells"]) * self.dA)
         for e in vg.exits:
             for (r, c) in e["cells"]:
-                ex[r, c] = 1.0
+                if _in_canon(r, c):
+                    ex[r, c] = 1.0
         self.entrance_rate = ent / max(float(ent.max()), 1e-6)
         self.exit_mask = ex
         stage = torch.zeros(self.H, self.W)
         for a in vg.attractors:
             if a["kind"] == "stage":
                 for (r, c) in a["cells"]:
-                    stage[r, c] = 1.0
+                    if _in_canon(r, c):
+                        stage[r, c] = 1.0
         self.stage_ring = stage
 
         # per-entry constants
@@ -284,21 +311,23 @@ class Surrogate:
         return peak, danger, dict(zip(SCALARS, scal.tolist()))
 
     def surrogate_cost(self, u_t, scenario):
-        """Differentiable: the cost the 6.3 descent minimizes, computed the
-        SAME way sim.appraise() computes the real one -- the Hackathon
-        penalty applied to a density map, nothing else blended in. Here that
-        map is the U-Net's own predicted peak-density map, not a separately
-        regressed scalar: the search descends through density, literally,
-        end to end. (The scalar head still predicts `cost` as an auxiliary
-        training signal that helps the map head converge faster -- see
-        train()'s loss -- it just isn't part of what gradient descent
-        follows.)"""
+        """Differentiable: the cost the 6.3 descent minimizes.
+
+        Used to be recomputed from the U-Net's predicted PEAK-density map
+        (a spatial-only softplus penalty) so the search descended through
+        density pixels directly. That stopped being correct the moment
+        sim.appraise()'s `cost` became TIME-integrated (see its own
+        docstring: a peak map cannot distinguish a cell that was crowded
+        for 3s from one crowded for 200s) -- a single static map structurally
+        cannot represent that, so recomputing "cost" from the map here would
+        silently keep the search optimizing the OLD, superseded objective
+        while everything else (training labels, verification) moved on to
+        the new one. The scalar head already predicts the real (time-aware)
+        `cost` directly -- trained on sim.appraise()'s actual output, not a
+        map-based proxy -- so the search follows that instead."""
         x = self.raster.channels(u_t, scenario)[None].to(DEVICE)
-        maps, _ = self.net(x)
-        peak = maps[0, 0].clamp(0, 1) * sim.RHO_MAX
-        area = float(self.raster.base_walkable.sum()) * self.raster.dA
-        excess = peak - sim.RHO_SAFE
-        return F.softplus(sim.COST_K * excess).sum() / sim.COST_K * self.raster.dA / area
+        _, scal = self.net(x)
+        return scal[0, SCALARS.index("cost")] * self.y_std[SCALARS.index("cost")] + self.y_mean[SCALARS.index("cost")]
 
 
 def train(raster, X, Y_maps, Y_scal, epochs=20, lr=1e-3, lam=1.0, batch=16, holdout=0.15, seed=0, log=print):

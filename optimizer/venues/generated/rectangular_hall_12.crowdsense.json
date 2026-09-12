@@ -1,10 +1,10 @@
 {
   "version": 1,
   "meta": {
-    "name": "Generated Rectangular Hall #0",
+    "name": "Generated Rectangular Hall #12",
     "unit": "m",
-    "createdAt": "2026-09-12T06:27:00.899997Z",
-    "updatedAt": "2026-09-12T06:27:00.900138Z"
+    "createdAt": "2026-09-12T06:27:00.900517Z",
+    "updatedAt": "2026-09-12T06:27:00.900518Z"
   },
   "scale": {
     "pixelsPerUnit": 20
@@ -20,16 +20,16 @@
           "y": 0
         },
         {
-          "x": 21.063510005174184,
+          "x": 12.619578532369033,
           "y": 0
         },
         {
-          "x": 21.063510005174184,
-          "y": 17.870764217808933
+          "x": 12.619578532369033,
+          "y": 23.238937445303876
         },
         {
           "x": 0,
-          "y": 17.870764217808933
+          "y": 23.238937445303876
         },
         {
           "x": 0,
@@ -44,10 +44,21 @@
     {
       "id": "wall_column_0",
       "shape": "rect",
-      "x": 15.322860810660979,
-      "y": 10.21138235459482,
-      "w": 1.1673375303100177,
-      "h": 0.7448477297672627,
+      "x": 8.657287178548227,
+      "y": 2.0384986049445954,
+      "w": 0.945711222401411,
+      "h": 0.6986186938663794,
+      "color": "#c9cbd4",
+      "movable": false,
+      "extendable": false
+    },
+    {
+      "id": "wall_column_1",
+      "shape": "rect",
+      "x": 4.289981267979699,
+      "y": 18.46450575975049,
+      "w": 0.6523014119834459,
+      "h": 1.1839044926295124,
       "color": "#c9cbd4",
       "movable": false,
       "extendable": false
@@ -59,28 +70,28 @@
       "type": "bar",
       "name": "Bar 1",
       "shape": "rect",
-      "x": 7.836317079346617,
-      "y": 1.9061408633949457,
-      "w": 2.1411391314979356,
-      "h": 2.3670662327606338,
+      "x": 6.03002139283817,
+      "y": 9.084493490124087,
+      "w": 3.879462297560597,
+      "h": 5.899103465783943,
       "color": "#4f8fd6",
-      "capacity": 10,
-      "stickiness": 23,
+      "capacity": 32,
+      "stickiness": 31,
       "movable": true,
       "extendable": true
     },
     {
-      "id": "zone_merch_1",
-      "type": "merch",
-      "name": "Merch 2",
+      "id": "zone_seating_1",
+      "type": "seating",
+      "name": "Seating 2",
       "shape": "rect",
-      "x": 11.061476460929322,
-      "y": 3.364675529783311,
-      "w": 6.604755784331644,
-      "h": 4.656137727952926,
-      "color": "#c9a15a",
-      "capacity": 13,
-      "stickiness": 18,
+      "x": 2.977874028035627,
+      "y": 1.087686237077783,
+      "w": 2.144902048045352,
+      "h": 3.9918839581558165,
+      "color": "#8b7fe0",
+      "capacity": 10,
+      "stickiness": 92,
       "movable": true,
       "extendable": true
     },
@@ -89,10 +100,10 @@
       "type": "restroom",
       "name": "Restroom 3",
       "shape": "rect",
-      "x": 6.729829149983126,
-      "y": 9.293286403693699,
-      "w": 4.091849694540733,
-      "h": 4.374290302858386,
+      "x": 4.640894363739588,
+      "y": 6.090983214650633,
+      "w": 2.1788522007898155,
+      "h": 1.726767227784578,
       "color": "#8a8d94",
       "capacity": null,
       "stickiness": null,
@@ -105,9 +116,9 @@
       "id": "point_exit_0",
       "type": "exit",
       "name": "Exit 1",
-      "x": 16.655704806842166,
-      "y": 17.870764217808933,
-      "flowRate": 165,
+      "x": 3.087877367046021,
+      "y": 0.0,
+      "flowRate": 162,
       "color": "#e0564f",
       "movable": false
     },
@@ -115,8 +126,8 @@
       "id": "point_exit_1",
       "type": "emergency-exit",
       "name": "Exit 2",
-      "x": 21.063510005174184,
-      "y": 5.563085523309683,
+      "x": 0.0,
+      "y": 6.318088719130418,
       "flowRate": null,
       "color": "#5bb98c",
       "movable": false
@@ -125,9 +136,9 @@
       "id": "point_entrance_0",
       "type": "entrance",
       "name": "Entrance 1",
-      "x": 15.197873775113933,
-      "y": 17.870764217808933,
-      "flowRate": 140,
+      "x": 10.075502975367195,
+      "y": 23.238937445303876,
+      "flowRate": 205,
       "color": "#5bb98c",
       "movable": false
     },
@@ -135,19 +146,9 @@
       "id": "point_entrance_1",
       "type": "entrance",
       "name": "Entrance 2",
-      "x": 1.9774220229788724,
-      "y": 17.870764217808933,
-      "flowRate": 89,
-      "color": "#5bb98c",
-      "movable": false
-    },
-    {
-      "id": "point_entrance_2",
-      "type": "entrance",
-      "name": "Entrance 3",
-      "x": 7.136290986962517,
-      "y": 17.870764217808933,
-      "flowRate": 217,
+      "x": 9.435592466699088,
+      "y": 23.238937445303876,
+      "flowRate": 152,
       "color": "#5bb98c",
       "movable": false
     }

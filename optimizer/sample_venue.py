@@ -94,27 +94,59 @@ def _entrances(rng, w, h, n, margin=1.5):
 
 
 def _populated_zones(rng, w, h, avoid, n_zones):
-    """Zones placed to avoid a list of (x0,y0,x1,y1) rects, e.g. the stage."""
-    kinds = [("bar", 20, 12), ("merch", 15, 15), ("seating", 300, 8), ("restroom", 8, None)]
+    """Zones placed to avoid a list of (x0,y0,x1,y1) rects, e.g. the stage.
+
+    Capacity is CAPACITY DENSITY x AREA, not a fixed headcount independent
+    of how big the zone turns out to be -- the original version could put a
+    capacity:300 zone on a 3x2.5m footprint (40 people/m^2, well past even
+    the physical jam density). Densities and stickiness below are
+    calibrated against two things: published event-planning guidance
+    (standing events run 6-12 sqft/person = 0.9-1.8 people/m^2; nightclub
+    dance floors 2-3 sqft/person; seated dining 9-14 sqft/person) and the
+    5 real venues in venues/from_gemini/, which independently cross-check
+    at capacity/area = 0.6-0.9 people/m^2 despite being different venue
+    types -- and real stickiness of 30-120 minutes, not the 6-22 minutes
+    the fixed-multiplier version produced."""
+    kinds = [("bar", (0.9, 1.6), (20, 45)), ("merch", (0.4, 0.8), (15, 30)),
+             ("seating", (0.5, 1.0), (60, 120)), ("restroom", None, None)]
     rng.shuffle(kinds)
     zones = []
+    MIN_CAP = 10   # a 3-person "zone" is a numerically-thin edge case (a real
+                   # ledger error surfaced at n_in=4 total, ~2.5e-2 vs a 4e-3
+                   # bar) and not a useful crowd-flow example either way --
+                   # floor it rather than chase the edge case under pressure.
     for i in range(n_zones):
-        ztype, cap, stick = kinds[i % len(kinds)]
-        for _ in range(20):
-            zw, zh = rng.uniform(3, min(8, w * 0.35)), rng.uniform(2.5, min(6, h * 0.3))
-            x, y = rng.uniform(0.5, max(0.6, w - zw - 0.5)), rng.uniform(0.5, max(0.6, h - zh - 0.5))
-            if all(x + zw < a[0] or x > a[2] or y + zh < a[1] or y > a[3] for a in avoid):
-                zones.append(_zone(f"zone_{ztype}_{i}", ztype, f"{ztype.title()} {i+1}",
-                                   x, y, zw, zh,
-                                   int(cap * rng.uniform(0.6, 1.4)) if cap else None,
-                                   int(stick * rng.uniform(0.7, 1.5)) if stick else None))
-                avoid = avoid + [(x, y, x + zw, y + zh)]
+        ztype, density_range, stick_range = kinds[i % len(kinds)]
+        # shrink the footprint on later attempts instead of giving up after
+        # 20 tries at one size -- an obstacle-packed or small venue can
+        # otherwise end with ZERO populated zones (a real failure seen with
+        # the smaller, more realistic room sizes below), which is a venue
+        # nobody can be simulated in at all.
+        placed = False
+        for shrink in (1.0, 0.6, 0.35):
+            for _ in range(20):
+                zw = rng.uniform(2.0 * shrink, max(2.0 * shrink, min(8, w * 0.35) * shrink))
+                zh = rng.uniform(1.6 * shrink, max(1.6 * shrink, min(6, h * 0.3) * shrink))
+                x, y = rng.uniform(0.5, max(0.6, w - zw - 0.5)), rng.uniform(0.5, max(0.6, h - zh - 0.5))
+                if all(x + zw < a[0] or x > a[2] or y + zh < a[1] or y > a[3] for a in avoid):
+                    cap = max(MIN_CAP, int(zw * zh * rng.uniform(*density_range))) if density_range else None
+                    stick = int(rng.uniform(*stick_range)) if stick_range else None
+                    zones.append(_zone(f"zone_{ztype}_{i}", ztype, f"{ztype.title()} {i+1}",
+                                       x, y, zw, zh, cap, stick))
+                    avoid = avoid + [(x, y, x + zw, y + zh)]
+                    placed = True
+                    break
+            if placed:
                 break
     return zones, avoid
 
 
 def rectangular_hall(rng, seed):
-    w, h = rng.uniform(18, 34), rng.uniform(14, 26)
+    # 12-30m: real venues in venues/from_gemini/ run 12-22m/side; a real
+    # 220-capacity nightclub example runs ~15x15m (WebSearch, 2026-09-12).
+    # The upper end still covers a bigger club (this project's own 30x20m
+    # reference venue).
+    w, h = rng.uniform(12, 30), rng.uniform(11, 24)
     v = _base_venue(f"Generated Rectangular Hall #{seed}", w, h)
     n_exits = rng.randint(2, 4)
     v["points"] += _exits_on_perimeter(rng, w, h, n_exits)
@@ -133,7 +165,7 @@ def rectangular_hall(rng, seed):
 
 def corridor_into_hall(rng, seed):
     cw, ch = rng.uniform(2.5, 4.0), rng.uniform(6, 12)
-    hw, hh = rng.uniform(16, 28), rng.uniform(12, 20)
+    hw, hh = rng.uniform(11, 26), rng.uniform(10, 18)   # see rectangular_hall's note
     total_w, total_h = cw + hw, max(ch, hh)
     v = _base_venue(f"Generated Corridor+Hall #{seed}", total_w, total_h)
     # a wall separating the corridor from the hall, with a gap (implicit doorway)
@@ -162,7 +194,7 @@ def corridor_into_hall(rng, seed):
 
 
 def hall_with_obstacles(rng, seed):
-    w, h = rng.uniform(20, 36), rng.uniform(16, 26)
+    w, h = rng.uniform(13, 32), rng.uniform(12, 24)   # see rectangular_hall's note
     v = _base_venue(f"Generated Hall+Obstacles #{seed}", w, h)
     n_exits = rng.randint(2, 4)
     v["points"] += _exits_on_perimeter(rng, w, h, n_exits)

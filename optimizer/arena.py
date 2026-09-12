@@ -41,6 +41,7 @@ extendable:true, points to movable:false, per docs/VENUE_FORMAT.md.
 import copy
 import json
 import heapq
+import os
 import numpy as np
 
 CELL = 0.4            # metres per grid cell
@@ -52,6 +53,24 @@ DEFAULT_ENTRANCE_FLOW = 60.0   # people/min, used if an entrance has no flowRate
 def load(path):
     with open(path) as f:
         return json.load(f)
+
+def venue_stem(path):
+    """Filename to namespace every output/cache by, so pointing the
+    pipeline at a second venue doesn't silently overwrite the first's data
+    shard, trained surrogate, or result files. Strips both '.crowdsense'
+    and '.json' (the format's usual double extension), not just one."""
+    name = os.path.basename(path)
+    for suffix in (".crowdsense.json", ".json"):
+        if name.endswith(suffix):
+            return name[: -len(suffix)]
+    return os.path.splitext(name)[0]
+
+def default_venue_path(here):
+    """The sample fixture, when no --venue is given -- same lookup every
+    script in this directory uses, so they agree on the default."""
+    candidates = [os.path.join(here, "..", "examples", "sample-venue.json"),
+                  os.path.join(here, "sample-venue.json")]
+    return next((p for p in candidates if os.path.exists(p)), candidates[-1])
 
 
 # --- shared geometry helpers ----------------------------------------------

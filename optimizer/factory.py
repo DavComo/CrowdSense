@@ -151,16 +151,17 @@ def main():
     args = ap.parse_args()
 
     here = os.path.dirname(os.path.abspath(__file__))
-    venue_path = args.venue or next(
-        p for p in [os.path.join(here, "..", "examples", "sample-venue.json"),
-                    os.path.join(here, "sample-venue.json")] if os.path.exists(p))
+    venue_path = args.venue or arena.default_venue_path(here)
     os.makedirs(os.path.join(here, args.out), exist_ok=True)
 
     print(f"venue: {venue_path}")
     print(f"generating {args.n} layouts x {len(SCENARIOS)} scenarios on {args.workers} workers ...")
     venue, spec, rows = generate(venue_path, args.n, args.workers)
     raster, X, Ym, Ys, meta = to_tensors(venue, spec, rows)
-    path = os.path.join(here, args.out, "shard_000.npz")
+    # namespaced by venue -- pointing this at a second venue must not
+    # silently overwrite the first one's training data
+    stem = arena.venue_stem(venue_path)
+    path = os.path.join(here, args.out, f"shard_{stem}.npz")
     np.savez_compressed(path, X=X, Y_maps=Ym, Y_scal=Ys,
                         U=np.stack([m[0] for m in meta]),
                         S=np.array([m[1] for m in meta]))

@@ -3,8 +3,8 @@
   "meta": {
     "name": "Generated Rectangular Hall #6",
     "unit": "m",
-    "createdAt": "2026-09-12T02:39:28.875901Z",
-    "updatedAt": "2026-09-12T02:39:28.875902Z"
+    "createdAt": "2026-09-12T06:27:00.900377Z",
+    "updatedAt": "2026-09-12T06:27:00.900378Z"
   },
   "scale": {
     "pixelsPerUnit": 20
@@ -20,16 +20,16 @@
           "y": 0
         },
         {
-          "x": 23.68527132197906,
+          "x": 23.66175706459999,
           "y": 0
         },
         {
-          "x": 23.68527132197906,
-          "y": 15.284250318894337
+          "x": 23.66175706459999,
+          "y": 13.706378663081532
         },
         {
           "x": 0,
-          "y": 15.284250318894337
+          "y": 13.706378663081532
         },
         {
           "x": 0,
@@ -37,6 +37,17 @@
         }
       ],
       "thickness": 0.3,
+      "color": "#c9cbd4",
+      "movable": false,
+      "extendable": false
+    },
+    {
+      "id": "wall_column_0",
+      "shape": "rect",
+      "x": 4.213933505318022,
+      "y": 2.706132756592698,
+      "w": 0.7398433015780838,
+      "h": 0.6782012881277844,
       "color": "#c9cbd4",
       "movable": false,
       "extendable": false
@@ -48,28 +59,73 @@
       "type": "merch",
       "name": "Merch 1",
       "shape": "rect",
-      "x": 5.550093459094073,
-      "y": 5.016284646096303,
-      "w": 6.116405672262452,
-      "h": 3.737657150652084,
+      "x": 4.655863802182226,
+      "y": 6.3533111900623,
+      "w": 5.35825720003036,
+      "h": 2.180721906386476,
       "color": "#c9a15a",
-      "capacity": 11,
-      "stickiness": 12,
+      "capacity": 10,
+      "stickiness": 16,
       "movable": true,
       "extendable": true
     },
     {
-      "id": "zone_seating_1",
-      "type": "seating",
-      "name": "Seating 2",
+      "id": "zone_bar_1",
+      "type": "bar",
+      "name": "Bar 2",
       "shape": "rect",
-      "x": 12.762480109886743,
-      "y": 5.233193372055983,
-      "w": 7.794241398222131,
-      "h": 3.1211996084527582,
+      "x": 11.003054038668155,
+      "y": 3.550789130138849,
+      "w": 3.13506458333978,
+      "h": 1.958650859338374,
+      "color": "#4f8fd6",
+      "capacity": 10,
+      "stickiness": 32,
+      "movable": true,
+      "extendable": true
+    },
+    {
+      "id": "zone_seating_2",
+      "type": "seating",
+      "name": "Seating 3",
+      "shape": "rect",
+      "x": 11.606354836748588,
+      "y": 8.984683778310679,
+      "w": 6.295309974403688,
+      "h": 4.101509911981985,
       "color": "#8b7fe0",
-      "capacity": 355,
-      "stickiness": 8,
+      "capacity": 13,
+      "stickiness": 90,
+      "movable": true,
+      "extendable": true
+    },
+    {
+      "id": "zone_restroom_3",
+      "type": "restroom",
+      "name": "Restroom 4",
+      "shape": "rect",
+      "x": 16.451328281011307,
+      "y": 4.953801157092361,
+      "w": 4.833363587670659,
+      "h": 1.7788265638291678,
+      "color": "#8a8d94",
+      "capacity": null,
+      "stickiness": null,
+      "movable": true,
+      "extendable": true
+    },
+    {
+      "id": "zone_merch_4",
+      "type": "merch",
+      "name": "Merch 5",
+      "shape": "rect",
+      "x": 14.153185997597706,
+      "y": 2.7456310428480637,
+      "w": 1.3051927621884567,
+      "h": 2.1101813539955567,
+      "color": "#c9a15a",
+      "capacity": 10,
+      "stickiness": 18,
       "movable": true,
       "extendable": true
     }
@@ -79,9 +135,9 @@
       "id": "point_exit_0",
       "type": "exit",
       "name": "Exit 1",
-      "x": 9.704553925595853,
-      "y": 0.0,
-      "flowRate": 173,
+      "x": 2.01570382771979,
+      "y": 13.706378663081532,
+      "flowRate": 154,
       "color": "#e0564f",
       "movable": false
     },
@@ -89,18 +145,28 @@
       "id": "point_exit_1",
       "type": "exit",
       "name": "Exit 2",
-      "x": 0.0,
-      "y": 7.108136303529482,
-      "flowRate": 105,
+      "x": 23.66175706459999,
+      "y": 2.744928210235108,
+      "flowRate": 135,
       "color": "#e0564f",
       "movable": false
     },
     {
       "id": "point_exit_2",
-      "type": "emergency-exit",
+      "type": "exit",
       "name": "Exit 3",
-      "x": 23.68527132197906,
-      "y": 8.913860439797347,
+      "x": 2.469413104123542,
+      "y": 0.0,
+      "flowRate": 100,
+      "color": "#e0564f",
+      "movable": false
+    },
+    {
+      "id": "point_exit_3",
+      "type": "emergency-exit",
+      "name": "Exit 4",
+      "x": 0.0,
+      "y": 8.389573662083325,
       "flowRate": null,
       "color": "#5bb98c",
       "movable": false
@@ -109,9 +175,9 @@
       "id": "point_entrance_0",
       "type": "entrance",
       "name": "Entrance 1",
-      "x": 9.919858701347438,
-      "y": 15.284250318894337,
-      "flowRate": 152,
+      "x": 1.9436795833566602,
+      "y": 13.706378663081532,
+      "flowRate": 72,
       "color": "#5bb98c",
       "movable": false
     },
@@ -119,9 +185,9 @@
       "id": "point_entrance_1",
       "type": "entrance",
       "name": "Entrance 2",
-      "x": 8.192026158748831,
-      "y": 15.284250318894337,
-      "flowRate": 110,
+      "x": 9.681747198109932,
+      "y": 13.706378663081532,
+      "flowRate": 158,
       "color": "#5bb98c",
       "movable": false
     }

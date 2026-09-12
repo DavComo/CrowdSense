@@ -7,7 +7,10 @@ function's threshold), and the contour marks it. Fixed structure is grey,
 movable elements are coloured -- they are the only thing that changed.
 
 Generic: draws whatever is in the venue JSON, any shapes, any ids.
+
+    python3 show_pipeline.py --venue path/to/your.crowdsense.json
 """
+import argparse
 import os
 import numpy as np, matplotlib; matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -17,19 +20,24 @@ from matplotlib.colors import LinearSegmentedColormap
 import arena, sim
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
-_CANDIDATES = [
-    os.path.join(_HERE, "..", "examples", "sample-venue.json"),
-    os.path.join(_HERE, "sample-venue.json"),
-]
-VENUE_PATH = next((p for p in _CANDIDATES if os.path.exists(p)), _CANDIDATES[-1])
+_ap = argparse.ArgumentParser()
+_ap.add_argument("--venue", default=None)
+_ap.add_argument("--result", default=None, help="override the pipeline_result_<venue>.npz path")
+_args = _ap.parse_args()
+
+VENUE_PATH = _args.venue or arena.default_venue_path(_HERE)
+STEM = arena.venue_stem(VENUE_PATH)
 venue = arena.load(VENUE_PATH)
 spec = arena.build_spec(venue)
-d = np.load(os.path.join(_HERE, "pipeline_result.npz"))
+result_path = _args.result or os.path.join(_HERE, f"pipeline_result_{STEM}.npz")
+if not os.path.exists(result_path):
+    raise SystemExit(f"no result at {result_path}\nrun:  python3 run_unet_pipeline.py --venue {VENUE_PATH}")
+d = np.load(result_path)
 MOVABLE_IDS = {e["id"] for e in spec.entries}
 
-SHOW = [("circulation", 240.0, "normal operation (table to table)"),
-        ("evacuation", 420.0, "evacuation"),
-        ("headliner", 180.0, "headliner surge toward the stage")]
+SHOW = [("circulation", arena.SCENARIO_HORIZONS["circulation"], "normal operation (table to table)"),
+        ("evacuation", arena.SCENARIO_HORIZONS["evacuation"], "evacuation"),
+        ("headliner", arena.SCENARIO_HORIZONS["headliner"], "headliner surge toward the stage")]
 
 # white -> amber up to rho_safe, then red -> near-black above it
 _stops = [(0.0, "#ffffff"), (sim.RHO_SAFE / sim.RHO_MAX, "#f5b942"),
@@ -112,6 +120,6 @@ cb.ax.text(1.4, sim.RHO_SAFE, f" ρ_safe = {sim.RHO_SAFE}", va="center", fontsiz
 lines = "   ·   ".join(f"{lab}: {b:.2f} → {a:.2f}" for lab, b, a in summary)
 fig.suptitle("Same building shell, same fixed walls, same doors. Only movable elements were repositioned.\n"
              f"Excess-density cost, before → after —  {lines}", fontsize=10.5, weight="bold")
-out = os.path.join(_HERE, "club_before_after.png")
+out = os.path.join(_HERE, f"club_before_after_{STEM}.png")
 plt.savefig(out, dpi=140, bbox_inches="tight")
 print(f"wrote {out}   overlay = peak density; contour = rho_safe; + = T95 not reached")
