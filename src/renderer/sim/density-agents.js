@@ -33,7 +33,7 @@ export const AGENT_PARAMS_DEFAULTS = {
   // B=0.08m) expressed directly as an acceleration, not a force: this
   // sim has no separate per-agent mass term, so A here is already
   // "force ÷ typical 80kg pedestrian mass" (2000/80 = 25).
-  socialA: 25,      // m/s²
+  socialA: 50,      // m/s²
   socialB: 0.08,    // m
   bodyStiffness: 240, // m/s² per meter of actual overlap, once two agents are closer than touching — keeps the crowd from visibly interpenetrating at very high density
 };

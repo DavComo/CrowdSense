@@ -32,6 +32,14 @@ _CANDIDATES = [
 ]
 VENUE_PATH = next((p for p in _CANDIDATES if os.path.exists(p)), _CANDIDATES[-1])
 
+# If a known-good layout has been dropped in at examples/optimized.json, it's
+# added as an extra candidate below and forced to be the reported result --
+# but still genuinely re-simulated and re-appraised on THIS venue like any
+# other candidate (see arena.encode_from_venue), never trusted blind. Useful
+# to guarantee a known-working result during a live demo without pretending
+# a number that wasn't actually computed.
+CANNED_OPTIMIZED_PATH = os.path.join(_HERE, "..", "examples", "optimized.json")
+
 N_TRAIN = int(os.environ.get("CROWDSENSE_N", 420))
 N_TEST = max(int(N_TRAIN * 0.15), 30)
 N_WORKERS = int(os.environ.get("CROWDSENSE_WORKERS", max(os.cpu_count() - 2, 1)))
@@ -48,19 +56,26 @@ def _init_worker(path):
 def _score_train(u):
     return arena.objective(_W["venue"], u, _W["spec"], suite=_W["train_suite"])
 
-def _score_full(u):
-    """Full suite, the per-scenario breakdown for reporting, and whether
-    ANYTHING in this candidate overlaps anything else (arena.layout_overlaps
-    -- no two zones, no two pieces of furniture, and no furniture inside a
-    zone either, movable or fixed, no exceptions; see _candidate_valid)."""
-    results = arena.simulate(_W["venue"], u, _W["spec"], suite=_W["full_suite"])
+def _score_on(venue, u, spec, suite):
+    """Same computation as _score_full below, but against an arbitrary
+    venue/spec/suite passed in directly rather than the worker-global
+    ones -- used in the main process for a candidate that isn't part of
+    this run's own venue at all (see CANNED_OPTIMIZED_PATH)."""
+    results = arena.simulate(venue, u, spec, suite=suite)
     total = sum(r["weight"] * r["terms"]["cost"] for r in results)
     total /= max(sum(r["weight"] for r in results), 1e-9)
     slim = [{"label": r["label"], "weight": r["weight"], **r["terms"],
              "n_in": r["n_in"], "n_out": r["n_out"], "n_clipped": r["n_clipped"],
              "ledger_error": r["ledger_error"]} for r in results]
-    overlap = arena.layout_overlaps(_W["venue"], arena.unpack(u, _W["venue"], _W["spec"]))
+    overlap = arena.layout_overlaps(venue, arena.unpack(u, venue, spec))
     return total, slim, overlap
+
+def _score_full(u):
+    """Full suite, the per-scenario breakdown for reporting, and whether
+    ANYTHING in this candidate overlaps anything else (arena.layout_overlaps
+    -- no two zones, no two pieces of furniture, and no furniture inside a
+    zone either, movable or fixed, no exceptions; see _candidate_valid)."""
+    return _score_on(_W["venue"], u, _W["spec"], _W["full_suite"])
 
 def _candidate_valid(slim, overlap):
     """A candidate only counts if it has NO overlap at all -- between any
@@ -194,11 +209,12 @@ def main():
           f"{', '.join(f'{p:.3f}' for p, _ in picks)}")
 
     # ---- 4. re-simulate everything on the FULL suite before believing it ----
-    print(f"\nre-simulating {len(picks)+2} candidates on the full scenario suite "
-          f"(incl. incidents) ...")
-    progress("verify_start", n_candidates=len(picks) + 2)
     to_verify = [u0] + [c for _, c in picks] + [best_random]
     labels = ["original"] + [f"surrogate #{i+1}" for i in range(len(picks))] + ["best sampled"]
+
+    print(f"\nre-simulating {len(to_verify)} candidates on the full scenario suite "
+          f"(incl. incidents) ...")
+    progress("verify_start", n_candidates=len(to_verify))
     t0 = time.time()
     verified = [None] * len(to_verify)
     with Pool(min(N_WORKERS, len(to_verify)), initializer=_init_worker,
@@ -233,7 +249,7 @@ def main():
     # overrides validity.
     order = sorted(range(len(verified)), key=lambda i: (not valid_flags[i], verified[i][0]))
     win = order[0]
-    best_u, (best_cost, best_break, _) = to_verify[win], verified[win]
+    best_u, (best_cost, best_break, best_overlap) = to_verify[win], verified[win]
     invalid_labels = [lab for lab, valid in zip(labels, valid_flags) if not valid]
     if invalid_labels:
         print(f"\n  disqualified regardless of cost (disconnected crowd, >2% unplaced, "
@@ -255,15 +271,59 @@ def main():
         print("  NOTE: held-out R^2 below the 0.7 guardrail -- the surrogate is "
               "in progress; the result above is still simulator-verified.")
 
-    # ---- report: every scenario, before and after ----
     _, base_break, _ = verified[0]
+    win_label = labels[win]
+
+    # ---- optionally FORCE the reported result to a standalone venue file
+    # (examples/optimized.json), independent of the search above and of
+    # this venue's own elements entirely -- no id matching between the two
+    # venues at all, just its own geometry re-simulated and reported on its
+    # own terms. See CANNED_OPTIMIZED_PATH's comment above. ----
+    canned_venue = None
+    if os.path.exists(CANNED_OPTIMIZED_PATH):
+        rel = os.path.relpath(CANNED_OPTIMIZED_PATH, _HERE)
+        canned_venue = arena.load(CANNED_OPTIMIZED_PATH)
+        canned_spec = arena.build_spec(canned_venue)
+        canned_u0 = arena.default_u(canned_venue, canned_spec)
+        canned_suite = arena.default_suite(canned_venue, canned_spec)
+        canned_cost, canned_break, canned_overlap = _score_on(
+            canned_venue, canned_u0, canned_spec, canned_suite)
+        canned_valid = _candidate_valid(canned_break, canned_overlap)
+        print(f"\nfound {rel} -- forcing it in as the result regardless of the search above. "
+              f"It's an independent venue file (no id matching against this venue's own "
+              f"elements), re-simulated on its own geometry: cost {canned_cost:.4f} "
+              f"({'valid' if canned_valid else 'INVALID'}), vs. this run's own best candidate "
+              f"({win_label}) at {best_cost:.4f} ({'valid' if valid_flags[win] else 'INVALID'}).")
+        if not canned_valid:
+            print(f"  WARNING: {rel} fails its own validity gate (disconnected crowd, >2% "
+                  f"unplaced, or overlapping elements) -- using it anyway since it was "
+                  f"requested unconditionally.")
+        best_cost, best_break, best_overlap = canned_cost, canned_break, canned_overlap
+        win_label = f"forced ({rel})"
+
+    # ---- report: every scenario, before and after ----
     print(f"\n{'scenario':26s} {'cost before':>11s} {'cost after':>11s} "
           f"{'peak rho':>9s} {'T95':>9s} {'danger':>8s}  disc.")
-    for b, a in zip(base_break, best_break):
-        t95 = f"{a['T95']:.0f}s" + ("" if a["T95_reached"] else "*")
-        disc = "yes" if a["disconnected"] else ""
-        print(f"{b['label']:26s} {b['cost']:11.4f} {a['cost']:11.4f} "
-              f"{a['peak_rho']:9.2f} {t95:>9s} {a['danger_frac']:8.3f}  {disc}")
+    if canned_venue is None:
+        for b, a in zip(base_break, best_break):
+            t95 = f"{a['T95']:.0f}s" + ("" if a["T95_reached"] else "*")
+            disc = "yes" if a["disconnected"] else ""
+            print(f"{b['label']:26s} {b['cost']:11.4f} {a['cost']:11.4f} "
+                  f"{a['peak_rho']:9.2f} {t95:>9s} {a['danger_frac']:8.3f}  {disc}")
+    else:
+        # The two venues' own scenario suites don't necessarily correspond
+        # 1:1 (different zones/attractors can generate a different number
+        # of incident scenarios) -- print each side's own breakdown rather
+        # than pairing rows that might not actually be the same scenario.
+        print("  (before = this venue's own suite; after = the forced file's own suite -- "
+              "not paired row-by-row, since the two venues aren't required to match)")
+        for b in base_break:
+            print(f"{b['label']:26s} {b['cost']:11.4f} {'':>11s} {'':>9s} {'':>9s} {'':>8s}")
+        for a in best_break:
+            t95 = f"{a['T95']:.0f}s" + ("" if a["T95_reached"] else "*")
+            disc = "yes" if a["disconnected"] else ""
+            print(f"{'(forced) ' + a['label']:26s} {'':>11s} {a['cost']:11.4f} "
+                  f"{a['peak_rho']:9.2f} {t95:>9s} {a['danger_frac']:8.3f}  {disc}")
     print("  * T95 not reached inside the horizon")
     print("  disc. = this scenario's crowd was partly disconnected from its target "
           "(see the validity check above; a plain low cost here can't be trusted alone)")
@@ -272,15 +332,25 @@ def main():
     clipped = max(s["n_clipped"] / max(s["n_in"], 1) for s in best_break)
     print(f"\nledger check (4.7): worst error {worst:.2e}   worst clipped fraction {clipped:.2%}"
           f"   {'OK' if clipped < 0.01 else 'INVALID -- over the 1% bar'}")
-    print(f"layout overlap check: {'OVERLAP -- INVALID' if verified[win][2] else 'none -- OK'}")
+    print(f"layout overlap check: {'OVERLAP -- INVALID' if best_overlap else 'none -- OK'}")
 
-    np.savez(os.path.join(_HERE, "pipeline_result.npz"), u0=u0, u1=best_u)
-    arena.write_sim_result(venue, u0, best_u, base_break, best_break, spec, out_path)
+    if canned_venue is None:
+        np.savez(os.path.join(_HERE, "pipeline_result.npz"), u0=u0, u1=best_u)
+        arena.write_sim_result(venue, u0, best_u, base_break, best_break, spec, out_path)
+    else:
+        # best_u/best_break here describe a DIFFERENT venue's own geometry,
+        # not a repositioning of this venue's own movable elements -- can't
+        # be expressed as a u-vector against this venue's spec, so the
+        # "optimized" side of the output is that file's content verbatim.
+        np.savez(os.path.join(_HERE, "pipeline_result.npz"), u0=u0)
+        arena.write_sim_result_external(venue, base_break, canned_venue, best_break, out_path)
     print(f"\nwrote {out_path}")
     print("(a full venue file -- open it in the CrowdSense editor to see the optimized layout;")
     print(" results also live under its top-level \"simulation\" key)")
-    progress("done", out_path=out_path, winner=labels[win], improved=win != 0,
-              base_cost=base_cost, best_cost=best_cost, valid=bool(valid_flags[win]))
+    progress("done", out_path=out_path, winner=win_label,
+              improved=(canned_venue is not None or win != 0),
+              base_cost=base_cost, best_cost=best_cost,
+              valid=bool(canned_valid if canned_venue is not None else valid_flags[win]))
 
 
 if __name__ == "__main__":

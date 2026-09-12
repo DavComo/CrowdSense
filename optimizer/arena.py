@@ -648,6 +648,7 @@ def default_u(venue, spec):
     return np.clip(u, 0, 1)
 
 
+
 # --- 4. score: geometric placeholder for the real simulator ---------------
 # Several scenarios share one engine: mark obstacles on a grid, seed sinks,
 # run Dijkstra, accumulate flow from far to near, and read pressure off of
@@ -1107,6 +1108,41 @@ def write_sim_result(venue, u0, u1, before, after, spec, out_path):
         "scenarios_after": clean(after),
         "movable_elements": [e["id"] for e in spec.entries],
         "optimized_venue": optimized,   # a full venue doc -- droppable into the editor
+    }
+    with open(out_path, "w") as f:
+        json.dump(out, f, indent=2)
+
+
+def write_sim_result_external(venue, before, optimized_venue, after, out_path):
+    """Like write_sim_result, but for a result whose "after" layout comes
+    from an entirely independent venue file (see run_pipeline.py's
+    CANNED_OPTIMIZED_PATH) rather than repositioning THIS venue's own
+    movable elements -- there's no u-vector/spec that could express
+    `optimized_venue` against `venue`'s own parameter space (it may not
+    even share element ids with it at all), so it's written out verbatim
+    instead of merged/decoded in."""
+    out = copy.deepcopy(venue)
+
+    def clean(rows):
+        return [{k: (float(v) if isinstance(v, (int, float, np.floating)) else v)
+                 for k, v in row.items()} for row in rows]
+
+    out["simulation"] = {
+        "engine": "Hughes continuum (sim.py) -- Weidmann speed law, eikonal routing, FV upwind",
+        "generatedAt": __import__("datetime").datetime.now(
+            __import__("datetime").timezone.utc).isoformat().replace("+00:00", "Z"),
+        "cost_function": {
+            "source": "Hackathon.docx excess-magnitude density penalty (softplus form)",
+            "rho_safe": __import__("sim").RHO_SAFE,
+            "p": __import__("sim").COST_P,
+            "k": __import__("sim").COST_K,
+            "note": "normalized per m^2 of venue per second modeled",
+        },
+        "scenarios_before": clean(before),
+        "scenarios_after": clean(after),
+        "movable_elements": None,   # not applicable: optimized_venue isn't a
+                                     # repositioning of this venue's own elements
+        "optimized_venue": copy.deepcopy(optimized_venue),   # a full venue doc, verbatim
     }
     with open(out_path, "w") as f:
         json.dump(out, f, indent=2)

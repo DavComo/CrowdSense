@@ -1,0 +1,251 @@
+{
+  "version": 1,
+  "meta": {
+    "name": "Sample Club Floor",
+    "unit": "m",
+    "createdAt": "2026-09-11T00:00:00.000Z",
+    "updatedAt": "2026-09-12T18:34:09.465Z"
+  },
+  "scale": {
+    "pixelsPerUnit": 20
+  },
+  "background": null,
+  "walls": [
+    {
+      "shape": "line",
+      "movable": false,
+      "extendable": false,
+      "id": "wall_perimeter",
+      "points": [
+        {
+          "x": 0,
+          "y": 0
+        },
+        {
+          "x": 30,
+          "y": 0
+        },
+        {
+          "x": 30,
+          "y": 20
+        },
+        {
+          "x": 0,
+          "y": 20
+        },
+        {
+          "x": 0,
+          "y": 0
+        }
+      ],
+      "thickness": 0.3,
+      "color": "#c9cbd4"
+    },
+    {
+      "shape": "line",
+      "movable": true,
+      "extendable": true,
+      "id": "wall_divider",
+      "points": [
+        {
+          "x": 20.07329598898146,
+          "y": 10.877756735420586
+        },
+        {
+          "x": 17.061000907014247,
+          "y": 13.644150178043537
+        }
+      ],
+      "thickness": 0.2,
+      "color": "#c9cbd4"
+    },
+    {
+      "shape": "pillar",
+      "movable": false,
+      "extendable": false,
+      "id": "wall_column_1",
+      "cx": 9,
+      "cy": 12,
+      "r": 0.4,
+      "color": "#c9cbd4"
+    },
+    {
+      "shape": "line",
+      "movable": true,
+      "extendable": true,
+      "id": "wall_c34abbd0",
+      "points": [
+        {
+          "x": 13.0461716440473,
+          "y": 15.030763949543134
+        },
+        {
+          "x": 13.033133314297231,
+          "y": 19.9450017636388
+        }
+      ],
+      "thickness": 0.25,
+      "color": "#c9cbd4"
+    },
+    {
+      "shape": "line",
+      "movable": true,
+      "extendable": true,
+      "id": "wall_44c5edfe",
+      "points": [
+        {
+          "x": 0.09233908895458215,
+          "y": 11.646829229373823
+        },
+        {
+          "x": 3.627308794197427,
+          "y": 11.646829229373823
+        }
+      ],
+      "thickness": 0.25,
+      "color": "#c9cbd4"
+    },
+    {
+      "shape": "line",
+      "movable": true,
+      "extendable": true,
+      "id": "wall_28ecaa2b",
+      "points": [
+        {
+          "x": 6.455012513437249,
+          "y": 11.646860722923945
+        },
+        {
+          "x": 15.491897759338888,
+          "y": 11.677598427841977
+        }
+      ],
+      "thickness": 0.25,
+      "color": "#c9cbd4"
+    },
+    {
+      "shape": "line",
+      "movable": true,
+      "extendable": true,
+      "id": "wall_3d0d91d3",
+      "points": [
+        {
+          "x": 3.0433477223864553,
+          "y": 13.46076323568933
+        },
+        {
+          "x": 7.0696721311475414,
+          "y": 14.068832849926906
+        }
+      ],
+      "thickness": 0.25,
+      "color": "#c9cbd4"
+    },
+    {
+      "shape": "line",
+      "movable": true,
+      "extendable": true,
+      "id": "wall_8f6bc21c",
+      "points": [
+        {
+          "x": 0.09233908895458215,
+          "y": 11.646829229373823
+        },
+        {
+          "x": 2,
+          "y": 7
+        }
+      ],
+      "thickness": 0.25,
+      "color": "#c9cbd4"
+    },
+    {
+      "shape": "line",
+      "movable": true,
+      "extendable": true,
+      "id": "wall_9c3bd35a",
+      "points": [
+        {
+          "x": 16,
+          "y": 2
+        },
+        {
+          "x": 18.00782610342488,
+          "y": -0.007826103424879438
+        }
+      ],
+      "thickness": 0.25,
+      "color": "#c9cbd4"
+    },
+    {
+      "shape": "line",
+      "movable": true,
+      "extendable": true,
+      "id": "wall_cda17486",
+      "points": [
+        {
+          "x": 16,
+          "y": 7
+        },
+        {
+          "x": 17.969237625142835,
+          "y": 8.969237625142835
+        }
+      ],
+      "thickness": 0.25,
+      "color": "#c9cbd4"
+    }
+  ],
+  "zones": [
+    {
+      "movable": true,
+      "extendable": true,
+      "id": "zone_stage",
+      "type": "stage",
+      "name": "Main Stage",
+      "shape": "rect",
+      "x": 2,
+      "y": 2,
+      "w": 14,
+      "h": 5,
+      "rotation": 0,
+      "color": "#e0564f",
+      "attraction": true
+    },
+    {
+      "movable": true,
+      "extendable": false,
+      "id": "zone_bar",
+      "type": "bar",
+      "name": "Back Bar",
+      "shape": "rect",
+      "x": 18.895491803278688,
+      "y": 13.096311475409836,
+      "w": 6,
+      "h": 4,
+      "rotation": 0,
+      "color": "#4f8fd6",
+      "attraction": true
+    }
+  ],
+  "points": [
+    {
+      "throughput": 500,
+      "id": "point_main_entrance",
+      "type": "entrance",
+      "name": "Main Entrance",
+      "x": 8,
+      "y": 20,
+      "color": "#5bb98c"
+    },
+    {
+      "throughput": null,
+      "id": "point_emergency_exit",
+      "type": "exit",
+      "name": "Emergency Exit — East",
+      "x": 30,
+      "y": 12,
+      "color": "#d6a24f"
+    }
+  ]
+}
