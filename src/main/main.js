@@ -1,6 +1,8 @@
 const { app, BrowserWindow, ipcMain, dialog, Menu } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs/promises');
+const fsSync = require('node:fs');
+const { spawn } = require('node:child_process');
 
 const isDev = process.argv.includes('--dev');
 
@@ -10,6 +12,8 @@ let mainWindow = null;
 let maskViewerWindow = null;
 /** @type {BrowserWindow | null} */
 let densityViewerWindow = null;
+/** @type {BrowserWindow | null} */
+let optimizerViewerWindow = null;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -31,10 +35,6 @@ function createWindow() {
   if (isDev) {
     mainWindow.webContents.openDevTools({ mode: 'detach' });
   }
-
-
-
-
 
   // The renderer's `beforeunload` handler (src/renderer/app.js) calls
   // preventDefault() when there are unsaved changes. In a real browser that
@@ -253,6 +253,44 @@ ipcMain.handle('window:open-density-viewer', async (_event, payload) => {
   return true;
 });
 
+// Same pattern again, for the "Optimize Layout…" progress window. Unlike
+// the two above, this window drives its own long-running work (it calls
+// optimizer:run itself once loaded, rather than being handed a finished
+// result) — see optimizer-viewer.js.
+ipcMain.handle('window:open-optimizer-viewer', async (_event, payload) => {
+  if (!optimizerViewerWindow || optimizerViewerWindow.isDestroyed()) {
+    optimizerViewerWindow = new BrowserWindow({
+      width: 720,
+      height: 760,
+      minWidth: 480,
+      minHeight: 480,
+      title: 'CrowdSense — Optimize Layout',
+      backgroundColor: '#1a1b1e',
+      webPreferences: {
+        preload: path.join(__dirname, '..', 'preload', 'optimizer-viewer-preload.js'),
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true,
+      },
+    });
+    await optimizerViewerWindow.loadFile(path.join(__dirname, '..', 'renderer', 'optimizer-viewer.html'));
+    optimizerViewerWindow.on('closed', () => { optimizerViewerWindow = null; });
+  } else {
+    optimizerViewerWindow.focus();
+  }
+  optimizerViewerWindow.webContents.send('optimizer-viewer:data', payload);
+  return true;
+});
+
+// The optimizer-viewer window can't reach the main window's venue model
+// directly (separate renderer, separate JS context) — it asks main.js to
+// forward the optimized venue over, and app.js in the main window applies
+// it to the editor.
+ipcMain.handle('optimizer:apply-venue', async (_event, venue) => {
+  mainWindow?.webContents.send('optimizer:apply-venue-to-editor', venue);
+  return true;
+});
+
 ipcMain.handle('fs:write-file', async (_event, { filePath, contents }) => {
   await fs.writeFile(filePath, contents, 'utf-8');
   return true;
@@ -287,67 +325,120 @@ ipcMain.handle('dialog:export-png', async (_event, { dataUrl, defaultPath }) => 
   return { filePath: result.filePath };
 });
 
-ipcMain.handle('dialog:choose-export-folder', async () => {
-  const result = await dialog.showOpenDialog(mainWindow, {
-    title: 'Choose a folder for exported density-map runs',
-    properties: ['openDirectory', 'createDirectory'],
-  });
-  if (result.canceled || result.filePaths.length === 0) return null;
-  return { folderPath: result.filePaths[0] };
-});
+// ---------------------------------------------------------------------------
+// Layout optimizer (optimizer/ — a semi-separate Python project merged into
+// this repo: its own Hughes-continuum simulator, a data factory, a small
+// surrogate net, and a CMA-ES-style search — see optimizer/run_pipeline.py).
+// It re-simulates from the venue file directly; it does not need the JS
+// engines' own output, so this spawns it and reads its result back.
+// ---------------------------------------------------------------------------
 
-// Writes one simulation run's density maps to disk as raw binaries (not
-// JSON — hundreds of frames × thousands of cells as nested JSON arrays is
-// slow to parse at scale) plus a manifest referencing them by relative
-// path — a data contract for an external (likely Python/numpy) layout
-// optimizer to read later, not for the app itself to read back. See
-// docs/DENSITY_SIMULATION.md.
-ipcMain.handle('export:density-run', async (_event, { rootDir, payload }) => {
-  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const runDir = path.join(rootDir, `run-${timestamp}`);
-  const framesDir = path.join(runDir, 'frames');
-  await fs.mkdir(framesDir, { recursive: true });
+const OPTIMIZER_DIR = path.join(__dirname, '..', '..', 'optimizer');
+const OPTIMIZER_RUNS_DIR = path.join(OPTIMIZER_DIR, 'data', 'optimize-runs');
+// Bounds for the "Training samples" field in the editor's Crowd Simulation
+// panel (run_pipeline.py's CROWDSENSE_N) — clamped here so a malformed or
+// wildly out-of-range value from the renderer can't hang the app on an
+// absurdly long run, or spawn Python with zero/negative samples. A CLI user
+// can still go higher by setting CROWDSENSE_N directly before `npm start`.
+const DEFAULT_TRAIN_SAMPLES = 100;
+const MIN_TRAIN_SAMPLES = 20;
+const MAX_TRAIN_SAMPLES = 1000;
 
-  const toBuffer = (typedArray) => Buffer.from(typedArray.buffer, typedArray.byteOffset, typedArray.byteLength);
+/** The optimizer's own virtualenv (see optimizer/SETUP.md) — never the
+ * system Python, so its one real dependency (numpy) doesn't need to be
+ * installed system-wide, and never numpy-less system Python by accident. */
+function resolveOptimizerPython() {
+  const venvPython = process.platform === 'win32'
+    ? path.join(OPTIMIZER_DIR, '.venv', 'Scripts', 'python.exe')
+    : path.join(OPTIMIZER_DIR, '.venv', 'bin', 'python3');
+  return fsSync.existsSync(venvPython) ? venvPython : null;
+}
 
-  await fs.writeFile(path.join(runDir, 'domain_mask.bin'), toBuffer(Uint8Array.from(payload.domainMask)));
-  await fs.writeFile(path.join(runDir, 'peak_density.bin'), toBuffer(Float32Array.from(payload.metrics.peakDensity)));
-
-  const frameFiles = [];
-  for (let i = 0; i < payload.frames.length; i++) {
-    const name = `frame_${String(i).padStart(4, '0')}.bin`;
-    await fs.writeFile(path.join(framesDir, name), toBuffer(Float32Array.from(payload.frames[i])));
-    frameFiles.push(`frames/${name}`);
+/** Runs the full train→search→verify loop (run_pipeline.py) on `venue`,
+ * streaming progress back to the invoking window as it goes, and
+ * resolving with the winning layout once the process exits. Each
+ * invocation gets its own timestamped subfolder under
+ * optimizer/data/optimize-runs/ (gitignored, same spirit as
+ * optimizer/data/density-runs/ before it) so concurrent/repeated runs
+ * never collide and the input venue + result are both kept together. */
+ipcMain.handle('optimizer:run', async (event, { venue, trainSamples }) => {
+  const pythonPath = resolveOptimizerPython();
+  if (!pythonPath) {
+    throw new Error(
+      "Optimizer environment not set up yet. Run once from a terminal:\n"
+      + '  cd optimizer && python3 -m venv .venv && .venv/bin/pip install numpy\n'
+      + 'See optimizer/SETUP.md.',
+    );
   }
 
-  const manifest = {
-    version: 1,
-    createdAt: new Date().toISOString(),
-    engine: payload.engine,
-    venue: payload.venue,
-    cols: payload.cols,
-    rows: payload.rows,
-    cellSize: payload.cellSize,
-    originX: payload.originX,
-    originY: payload.originY,
-    unit: payload.unit,
-    dt: payload.dt,
-    totalTime: payload.totalTime,
-    maxPeople: payload.maxPeople,
-    rhoMax: payload.rhoMax,
-    phaseSwitchTime: payload.phaseSwitchTime,
-    // grid dtype/shape for every .bin file below: domain_mask.bin is
-    // uint8, everything else (peak_density.bin, each frame) is float32 —
-    // all shaped [rows, cols] in row-major order, e.g. in Python:
-    //   np.fromfile(path, dtype=np.float32).reshape(rows, cols)
-    times: payload.times,
-    ledger: payload.ledger,
-    metrics: { t95: payload.metrics.t95, peakDensity: 'peak_density.bin' },
-    warnings: payload.warnings,
-    domainMask: 'domain_mask.bin',
-    frames: frameFiles, // one per entry in `times`, same order
-  };
-  await fs.writeFile(path.join(runDir, 'manifest.json'), JSON.stringify(manifest, null, 2));
+  const runId = new Date().toISOString().replace(/[:.]/g, '-');
+  const runDir = path.join(OPTIMIZER_RUNS_DIR, `run-${runId}`);
+  await fs.mkdir(runDir, { recursive: true });
+  const venuePath = path.join(runDir, 'venue.json');
+  const outPath = path.join(runDir, 'optimized-venue.json');
+  await fs.writeFile(venuePath, JSON.stringify(venue, null, 2));
 
-  return { runDir };
+  // The editor's "Training samples" field (falls back to the env var, then
+  // the built-in default, for anyone invoking this outside the UI). More
+  // samples means a more thorough search but a proportionally longer run —
+  // see docs/OPTIMIZER.md's Performance section.
+  const requested = Number(trainSamples);
+  const nTrain = Number.isFinite(requested) && requested > 0
+    ? Math.round(Math.min(Math.max(requested, MIN_TRAIN_SAMPLES), MAX_TRAIN_SAMPLES))
+    : Number(process.env.CROWDSENSE_N) || DEFAULT_TRAIN_SAMPLES;
+
+  return new Promise((resolve, reject) => {
+    const child = spawn(pythonPath, [
+      path.join(OPTIMIZER_DIR, 'run_pipeline.py'),
+      '--venue', venuePath,
+      '--out', outPath,
+      '--progress-json',
+    ], {
+      cwd: OPTIMIZER_DIR,
+      env: { ...process.env, CROWDSENSE_N: String(nTrain) },
+    });
+
+    let stderrTail = '';
+    const forward = (line, isErr) => {
+      const prefix = 'CROWDSENSE_PROGRESS ';
+      if (!isErr && line.startsWith(prefix)) {
+        try {
+          event.sender.send('optimizer:progress', JSON.parse(line.slice(prefix.length)));
+          return;
+        } catch { /* not valid JSON after all — fall through to a raw log line */ }
+      }
+      event.sender.send('optimizer:log', { line, isErr });
+    };
+    const wireLines = (stream, isErr) => {
+      let buf = '';
+      stream.on('data', (chunk) => {
+        buf += chunk.toString();
+        let idx = buf.indexOf('\n');
+        while (idx >= 0) {
+          const line = buf.slice(0, idx);
+          buf = buf.slice(idx + 1);
+          if (line) forward(line, isErr);
+          idx = buf.indexOf('\n');
+        }
+      });
+      stream.on('end', () => { if (buf) forward(buf, isErr); });
+    };
+    wireLines(child.stdout, false);
+    wireLines(child.stderr, true);
+    child.stderr.on('data', (chunk) => { stderrTail = (stderrTail + chunk.toString()).slice(-4000); });
+
+    child.on('error', reject);
+    child.on('close', async (code) => {
+      if (code !== 0) {
+        reject(new Error(`Optimizer exited with code ${code}.\n${stderrTail}`));
+        return;
+      }
+      try {
+        const result = JSON.parse(await fs.readFile(outPath, 'utf-8'));
+        resolve({ runDir, resultPath: outPath, result });
+      } catch (err) {
+        reject(err);
+      }
+    });
+  });
 });

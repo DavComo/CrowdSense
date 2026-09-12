@@ -1,4 +1,4 @@
-import { ZONE_TYPES, POINT_TYPES } from '../model/schema.js';
+import { ZONE_TYPES, POINT_TYPES, isZoneWalkable } from '../model/schema.js';
 import { zoneArea } from '../canvas/geometry.js';
 import { distance } from '../canvas/geometry.js';
 
@@ -75,10 +75,11 @@ function checkboxInput(checked, onChange) {
 }
 
 /** "Optimization constraints" rows: whether the layout optimizer is allowed
- * to move and/or resize this element. Walls only — they're the only
- * element type these flags actually drive (the barrier mask, docs/MASKS.md)
- * since zones/points dropped every property that isn't aesthetic or
- * mask-facing. */
+ * to move and/or resize this element. Walls only — points don't carry
+ * these (a point's position isn't independent, see docs/VENUE_FORMAT.md);
+ * zones get their own tri-state version below (movementSelectInput) since
+ * "resize without ever moving" isn't a state worth exposing separately for
+ * furniture-like zones the way it is for a wall. */
 function constraintRows(container, item, commitAnd, { includeExtendable }) {
   const hint = document.createElement('p');
   hint.style.cssText = 'margin:2px 0 8px;color:var(--text-dim);font-size:11px;';
@@ -89,6 +90,34 @@ function constraintRows(container, item, commitAnd, { includeExtendable }) {
   if (includeExtendable) {
     container.appendChild(row('Extendable', checkboxInput(item.extendable !== false, (v) => commitAnd(() => { item.extendable = v; }))));
   }
+}
+
+const ZONE_MOVE_OPTIONS = {
+  fixed: { label: 'Fixed — optimizer may not touch it' },
+  move: { label: 'Can move' },
+  reshape: { label: 'Can move & reshape' },
+};
+
+/** Zones fold `movable`/`extendable` into one tri-state choice — "fixed",
+ * "can move", or "can move & reshape" — rather than two checkboxes: an
+ * `extendable: true` with `movable: false` isn't a state the optimizer or
+ * this schema treats as different from "extendable: false" (arena.py's
+ * build_spec only reads `extendable` at all once `movable` is true), so
+ * exposing it as an independent checkbox would just invite a combination
+ * that quietly does nothing. */
+function zoneConstraintRow(container, item, commitAnd) {
+  const hint = document.createElement('p');
+  hint.style.cssText = 'margin:2px 0 8px;color:var(--text-dim);font-size:11px;';
+  hint.textContent = 'Controls what the crowd-flow optimizer is allowed to adjust — not the editor.';
+  container.appendChild(hint);
+
+  const movable = item.movable !== false;
+  const extendable = item.extendable !== false;
+  const current = !movable ? 'fixed' : (extendable ? 'reshape' : 'move');
+  container.appendChild(row('Optimizer may', selectInput(ZONE_MOVE_OPTIONS, current, (v) => commitAnd(() => {
+    item.movable = v !== 'fixed';
+    item.extendable = v === 'reshape';
+  }))));
 }
 
 function readonlyRow(labelText, valueText) {
@@ -140,7 +169,9 @@ export function renderProperties(container, model, selection, callbacks) {
       container.appendChild(row('Rotation (°)', numberInput(item.rotation ?? 0, (v) => commitAnd(() => { item.rotation = v; }), { step: 1 })));
     }
     container.appendChild(row('Attraction', checkboxInput(Boolean(item.attraction), (v) => commitAnd(() => { item.attraction = v; }))));
+    container.appendChild(row('Walkable', checkboxInput(isZoneWalkable(item), (v) => commitAnd(() => { item.walkable = v; }))));
     container.appendChild(readonlyRow('Area', `${zoneArea(item).toFixed(1)} ${unit}²`));
+    zoneConstraintRow(container, item, commitAnd);
   } else if (selection.kind === 'wall') {
     const shape = item.shape ?? 'line';
     container.appendChild(readonlyRow('Shape', WALL_SHAPE_LABELS[shape] ?? WALL_SHAPE_LABELS.line));

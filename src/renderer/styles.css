@@ -359,6 +359,6 @@ select, input[type="text"], input[type="number"] {
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
 }
 #modal-box h3 { margin: 0 0 8px; font-size: 14px; }
-#modal-box p { margin: 0 0 10px; color: var(--text-dim); font-size: 12px; }
+#modal-box p { margin: 0 0 10px; color: var(--text-dim); font-size: 12px; white-space: pre-line; }
 #modal-box input { width: 100%; margin-bottom: 14px; }
 #modal-actions { display: flex; justify-content: flex-end; gap: 8px; }

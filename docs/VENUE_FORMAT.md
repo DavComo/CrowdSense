@@ -81,29 +81,32 @@ would look up by name).
 
 ## `zones`
 
-Named areas — stage, bar, seating, restricted, etc. Zones carry only
-aesthetic fields and `attraction` (the one zone property a mask actually
-reads — see docs/MASKS.md) — no `capacity`, `stickiness`, `movable`, or
-`extendable`; those were cut since nothing in the mask pipeline used them.
-Zones can't be locked: the optimizer's editable/fixed distinction
-(`movable`/`extendable`) only applies to walls, since only walls feed the
-barrier mask.
+Named areas — stage, bar, seating, restricted, etc. Zones carry aesthetic
+fields, `attraction` (the one zone property a mask actually reads — see
+docs/MASKS.md), and three more: `walkable`, `movable`, `extendable` — see
+below. No `capacity`/`stickiness`; those are still cut since nothing in
+the editor's own pipeline uses them (the layout optimizer derives a
+substitute from drawn area/`attraction` when they're absent — see
+`optimizer/arena.py`'s `_zone_capacity`/`_zone_stickiness`).
 
 ```jsonc
 { "id": "zone_x1", "type": "stage", "name": "Main Stage", "shape": "rect",
-  "x": 5, "y": 2, "w": 12, "h": 6, "rotation": 0, "color": "#e0564f", "attraction": true }
+  "x": 5, "y": 2, "w": 12, "h": 6, "rotation": 0, "color": "#e0564f",
+  "attraction": true, "walkable": false, "movable": true, "extendable": true }
 
 { "id": "zone_x2", "type": "seating", "name": "GA Pit", "shape": "circle",
-  "cx": 20, "cy": 15, "r": 8, "color": "#8b7fe0", "attraction": false }
+  "cx": 20, "cy": 15, "r": 8, "color": "#8b7fe0",
+  "attraction": false, "walkable": true, "movable": true, "extendable": true }
 
 { "id": "zone_x3", "type": "restricted", "name": "Backstage", "shape": "polygon",
   "points": [{ "x": 0, "y": 0 }, { "x": 4, "y": 0 }, { "x": 4, "y": 6 }, { "x": 0, "y": 6 }],
-  "color": "#8a8d94", "attraction": false }
+  "color": "#8a8d94", "attraction": false, "walkable": false, "movable": false, "extendable": false }
 ```
 
 - `type`: one of `stage`, `bar`, `seating`, `restroom`, `merch`,
   `coat-check`, `restricted`, `custom` — purely descriptive, doesn't
-  change behavior. Add your own values freely; the editor will just treat
+  change behavior on its own (see `walkable` below for the property that
+  actually does). Add your own values freely; the editor will just treat
   an unrecognized type like `custom` for coloring purposes.
 - `shape` is one of `rect` (`x,y,w,h` — top-left + size before rotation,
   `w`/`h` can be negative, plus `rotation` in degrees around its own
@@ -116,6 +119,28 @@ barrier mask.
   zone. Purely binary; there's no weighted "how strongly" — that's for a
   companion field on the simulation side to build directly from the venue
   file if it needs one.
+- `walkable`: `true` or `false` — whether people can walk into/onto this
+  zone (set in the properties panel's "Walkable" checkbox). A stage
+  platform or a solid prop is `false`; ordinary floor area labeled by
+  purpose (seating/GA floor, a bar's service area, a restroom, a merch
+  table) is `true` — independent of `type`, so a "restricted" zone can
+  still be a walkable staff corridor, or a "custom" zone can be a solid
+  obstacle. Read via `isZoneWalkable(zone)` (`src/renderer/model/
+  schema.js`), which falls back to a type-based default (`stage`/
+  `restricted` block, everything else doesn't) for files saved before
+  this field existed, so nothing changes for a file nobody has re-saved.
+  The density simulator uses this directly to decide which zones to
+  rasterize as obstacles; `optimizer/arena.py`'s `_classify_zone` honors
+  the same explicit flag first, with the same type-based fallback.
+- `movable` / `extendable`: same meaning as on a wall (see
+  [Optimization constraints](#optimization-constraints-movable--extendable)
+  below) — zones carry them too now. Default `true`/`true` (the layout
+  optimizer's own long-standing default for zones, `arena.py`'s
+  `z.get("movable", True)`), backfilled on load for files saved before
+  zones carried these fields. The properties panel folds them into one
+  "Optimizer may" choice — Fixed / Can move / Can move & reshape — rather
+  than two checkboxes, since `extendable` only means anything once
+  `movable` is true.
 
 ## `points`
 
@@ -158,26 +183,31 @@ Purely visual — the simulation side can ignore this entirely.
 
 ## Optimization constraints: `movable` / `extendable`
 
-Walls carry `movable` and `extendable` — the only element type that does,
-since these are what the barrier mask (docs/MASKS.md) is built from, and
-that's the only mask either flag feeds. They say what the **layout
-optimizer** is allowed to touch when it searches for a better arrangement —
-not what the human designer can do in the editor (a designer can still
-flip either flag at any time; the editor also refuses to drag/resize a
-wall itself while it's locked, as a visual double-check that matches what
-you'll see in the file).
+Walls and zones both carry `movable` and `extendable` (points don't — see
+the entrance/exit snapping note above). For walls, these are also what the
+barrier mask (docs/MASKS.md) is built from. For both, they say what the
+**layout optimizer** is allowed to touch when it searches for a better
+arrangement — not what the human designer can do in the editor (a
+designer can still flip either flag at any time; the editor also refuses
+to drag/resize the element itself while it's locked, as a visual
+double-check that matches what you'll see in the file).
 
-- `movable: false` — the optimizer must leave this wall's position exactly
-  where the designer put it (e.g. a load-bearing wall).
+- `movable: false` — the optimizer must leave this element's position
+  exactly where the designer put it (e.g. a load-bearing wall, a bar
+  counter that's plumbed in place).
 - `movable: true` — the optimizer may reposition it.
 - `extendable: false` — the optimizer must leave its size/shape alone even
   if it's allowed to move it.
 - `extendable: true` — the optimizer may resize/reshape it.
 
-A locked wall renders in the editor with a small 🔒 badge (at the midpoint
-for a line wall, the center for a pillar or block) and a dashed outline
-when `extendable: false`, so a glance at the floor plan tells you what's
-fair game before you ever run the optimizer.
+Walls default to `false`/`false` (permanent structure); zones default to
+`true`/`true` (the optimizer's own long-standing default, predating the
+editor being able to express it at all).
+
+A locked wall or zone renders in the editor with a small 🔒 badge (at the
+midpoint for a line wall, the center for a pillar/block/zone) and a dashed
+outline when `extendable: false`, so a glance at the floor plan tells you
+what's fair game before you ever run the optimizer.
 
 ## Setting real-world scale
 

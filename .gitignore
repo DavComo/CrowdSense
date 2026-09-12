@@ -1,3 +1,16 @@
+# Node / Electron
+node_modules/
+dist/
+out/
+build/
+npm-debug.log*
+*.crowdsense.json.bak
+
+# Emscripten SDK -- downloaded locally to build the WASM crowd-sim module
+# (see native/BUILD.md); not needed by end users, who get the prebuilt
+# .wasm checked into src/renderer/sim/wasm/.
+.tools/
+
 # Prerequisites
 *.d
 
@@ -64,6 +77,13 @@ __pycache__/
 # large, reproducible via factory.py/factory_multi.py, not meant to live in git
 optimizer/data/*.npz
 optimizer/*.pt
+
+# Each "Optimize Layout..." click's input venue + result (see
+# src/main/main.js's optimizer:run handler) -- regenerated every run,
+# not meant to live in git. (Its virtualenv, optimizer/.venv/ -- see
+# optimizer/SETUP.md -- is already covered by the general .venv/ rule
+# above.)
+optimizer/data/optimize-runs/
 .DS_Store
 optimizer/.DS_Store
 optimizer/venues/.DS_Store

@@ -166,9 +166,25 @@ static void rebuildSpatialHash(void) {
   }
 }
 
-/* Nearest blocked-cell center within WALL_INTERACTION_RADIUS, for the
- * wall-repulsion term — short-range, so scanning nearby grid cells
- * directly (rather than a precomputed distance field) stays cheap. */
+/* Effective nearest blocked-cell point within WALL_INTERACTION_RADIUS, for
+ * the wall-repulsion term. A SOFT minimum over every candidate cell, not a
+ * hard argmin: right at a corner (two wall segments meeting at an angle),
+ * a hard "pick whichever single cell is nearest" flips discontinuously as
+ * an agent's position crosses the bisector between the two walls, and the
+ * repulsion DIRECTION jumps with it. An agent sitting near that bisector
+ * — exactly where crowd pressure pushes it, into the corner — then
+ * oscillates back and forth across the flip, forever (this is the actual
+ * mechanism behind the density map "pulsing" observed concentrated at
+ * exactly the room's geometric corners: the top-right corner of the
+ * sample club floor, and where its movable divider meets the perimeter).
+ * Weighting every nearby candidate by exp(-(d-dmin)/BLEND) and averaging
+ * their positions blends smoothly through the corner instead — away from
+ * a corner, a flat wall's own nearest cell still dominates the weighted
+ * sum overwhelmingly (its neighbors along the same flat wall are farther
+ * by much more than BLEND), so this changes nothing there; it only
+ * softens the specific spot where two walls' influence is genuinely
+ * comparable. Two passes (find dmin, then the weighted average) over the
+ * same small window — negligible extra cost per agent per sub-step. */
 static int nearestWallPoint(float x, float y, float *outWx, float *outWy) {
   int col, row;
   if (cellIndex(x, y, &col, &row) < 0) return 0;
@@ -177,7 +193,8 @@ static int nearestWallPoint(float x, float y, float *outWx, float *outWy) {
   int maxCol = col + searchRadius >= g_cols ? g_cols - 1 : col + searchRadius;
   int minRow = row - searchRadius < 0 ? 0 : row - searchRadius;
   int maxRow = row + searchRadius >= g_rows ? g_rows - 1 : row + searchRadius;
-  float bestDistSq = INFINITY;
+
+  float bestDist = INFINITY;
   int found = 0;
   for (int r = minRow; r <= maxRow; r++) {
     for (int c = minCol; c <= maxCol; c++) {
@@ -185,11 +202,30 @@ static int nearestWallPoint(float x, float y, float *outWx, float *outWy) {
       float wx = g_originX + (c + 0.5f) * g_cellSize;
       float wy = g_originY + (r + 0.5f) * g_cellSize;
       float dx = x - wx, dy = y - wy;
-      float d2 = dx * dx + dy * dy;
-      if (d2 < bestDistSq) { bestDistSq = d2; *outWx = wx; *outWy = wy; found = 1; }
+      float d = sqrtf(dx * dx + dy * dy);
+      if (d < bestDist) bestDist = d;
+      found = 1;
     }
   }
-  return found;
+  if (!found) return 0;
+
+  const float BLEND = 0.75f * g_cellSize; /* local smoothing only, not a new interaction range */
+  float sumW = 0.0f, sumX = 0.0f, sumY = 0.0f;
+  for (int r = minRow; r <= maxRow; r++) {
+    for (int c = minCol; c <= maxCol; c++) {
+      if (g_walkable[r * g_cols + c]) continue;
+      float wx = g_originX + (c + 0.5f) * g_cellSize;
+      float wy = g_originY + (r + 0.5f) * g_cellSize;
+      float dx = x - wx, dy = y - wy;
+      float d = sqrtf(dx * dx + dy * dy);
+      if (d - bestDist > 3.0f * BLEND) continue; /* negligible weight anyway */
+      float w = expf(-(d - bestDist) / BLEND);
+      sumW += w; sumX += w * wx; sumY += w * wy;
+    }
+  }
+  *outWx = sumX / sumW;
+  *outWy = sumY / sumW;
+  return 1;
 }
 
 EMSCRIPTEN_KEEPALIVE

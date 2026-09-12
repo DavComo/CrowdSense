@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval';" />
+  <title>CrowdSense — Optimize Layout</title>
+  <style>
+    :root {
+      --bg-0: #1a1b1e; --bg-1: #212226; --bg-2: #2a2b30; --border: #3c3d44;
+      --text: #e8e8ea; --text-dim: #9a9ba3; --accent: #4f8fd6; --good: #5bb98c; --bad: #d6704f;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: var(--bg-0); color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-size: 13px; }
+    #app { display: flex; flex-direction: column; height: 100vh; }
+    #header { padding: 12px 16px; background: var(--bg-1); border-bottom: 1px solid var(--border); flex-shrink: 0; }
+    #title { font-weight: 700; font-size: 14px; }
+    #subtitle { color: var(--text-dim); font-size: 11px; margin-top: 2px; }
+    #content { flex: 1; min-height: 0; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+
+    #progress-track { width: 100%; height: 10px; border-radius: 5px; background: var(--bg-2); overflow: hidden; border: 1px solid var(--border); }
+    #progress-fill { height: 100%; width: 0%; background: linear-gradient(90deg, var(--accent), #6fb1ea); transition: width 0.4s ease; }
+    #stage-text { margin-top: 8px; font-size: 12.5px; }
+    #elapsed { color: var(--text-dim); font-size: 11px; margin-top: 2px; }
+
+    #log-wrap { background: var(--bg-1); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; }
+    #log-title { font-size: 11px; color: var(--text-dim); margin-bottom: 4px; }
+    #log { height: 140px; overflow-y: auto; font-family: ui-monospace, "SF Mono", Menlo, monospace;
+      font-size: 10.5px; line-height: 1.5; color: var(--text-dim); white-space: pre-wrap; }
+    #log .err { color: var(--bad); }
+
+    #result { display: none; flex-direction: column; gap: 10px; }
+    #result-headline { font-size: 14px; font-weight: 600; }
+    #result-headline.good { color: var(--good); }
+    #result-headline.bad { color: var(--text-dim); }
+    #breakdown { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+    #breakdown th, #breakdown td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--border); }
+    #breakdown th { color: var(--text-dim); font-weight: 500; }
+    #result-actions { display: flex; gap: 8px; margin-top: 4px; }
+    .btn { background: var(--bg-2); border: 1px solid var(--border); color: var(--text);
+      padding: 8px 14px; border-radius: 6px; cursor: pointer; font-size: 12.5px; }
+    .btn:hover { filter: brightness(1.15); }
+    .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .btn:disabled { opacity: 0.5; cursor: default; filter: none; }
+
+    #compare-status { font-size: 11.5px; color: var(--text-dim); display: none; }
+    #error-box { display: none; background: #3a1f1f; border: 1px solid #6b3a3a; border-radius: 6px;
+      padding: 10px 12px; color: #f2c0b8; font-size: 12px; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div id="header">
+      <div id="title">Optimize Layout</div>
+      <div id="subtitle">Starting…</div>
+    </div>
+    <div id="content">
+      <div id="progress-section">
+        <div id="progress-track"><div id="progress-fill"></div></div>
+        <div id="stage-text">Starting…</div>
+        <div id="elapsed"></div>
+      </div>
+
+      <div id="log-wrap">
+        <div id="log-title">Log</div>
+        <div id="log"></div>
+      </div>
+
+      <div id="error-box"></div>
+
+      <div id="result">
+        <div id="result-headline"></div>
+        <table id="breakdown">
+          <thead><tr><th>Scenario</th><th>Cost before</th><th>Cost after</th></tr></thead>
+          <tbody id="breakdown-body"></tbody>
+        </table>
+        <div id="result-actions">
+          <button class="btn primary" id="btn-apply">Load Optimized Layout Into Editor</button>
+          <button class="btn" id="btn-compare">Compare Density Side-by-Side…</button>
+        </div>
+        <div id="compare-status"></div>
+      </div>
+    </div>
+  </div>
+  <script src="optimizer-viewer.js" type="module"></script>
+</body>
+</html>

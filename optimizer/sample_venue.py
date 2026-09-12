@@ -51,7 +51,10 @@ def _zone(zid, ztype, name, x, y, w, h, capacity, stickiness, movable=True, exte
 
 
 def _point(pid, ptype, name, x, y, flow_rate):
-    return {"id": pid, "type": ptype, "name": name, "x": x, "y": y, "flowRate": flow_rate,
+    # `throughput` is the current editor schema's field name (docs/VENUE_
+    # FORMAT.md); `flowRate` is what old files (and this generator, until
+    # now) used for the same value -- see arena._throughput.
+    return {"id": pid, "type": ptype, "name": name, "x": x, "y": y, "throughput": flow_rate,
             "color": COLORS.get(ptype, "#5bb98c"), "movable": False}
 
 

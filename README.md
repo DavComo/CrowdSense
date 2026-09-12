@@ -58,6 +58,18 @@ separate, in-progress piece — see [Where the simulation plugs in](#where-the-s
   array of density snapshots over time, played back in a separate window
   with play/pause, a scrub slider, and conservation/evacuation-time
   stats. See [docs/DENSITY_SIMULATION.md](docs/DENSITY_SIMULATION.md).
+- **Layout optimizer** — **Optimize Layout…** opens a dedicated progress
+  window and hands the current venue to [`optimizer/`](optimizer) (a
+  semi-separate Python project: its own Hughes-continuum simulator, a
+  data factory, a small surrogate model, and a search loop), which trains
+  on real-simulator-scored samples, searches through the surrogate,
+  re-verifies the winner on the real simulator, and reports a before/after
+  cost breakdown — scored on a standard, space-and-time-integrated
+  excess-density penalty (Fruin Level-of-Service), not mean density. From
+  there you can load the improved layout into the editor, or play the
+  original and optimized layouts' density simulations back side by side
+  on a shared color scale. One-time Python setup required; see
+  [docs/OPTIMIZER.md](docs/OPTIMIZER.md).
 
 ## Getting started
 
@@ -134,9 +146,14 @@ src/
     density-viewer.html/.js  The separate playback window for a density simulation result
 native/crowd_sim.c        The agent-based engine's C source, compiled to WebAssembly
 native/BUILD.md           How to rebuild the WASM module (not needed for normal use)
+optimizer/                The layout optimizer (Python) — its own simulator, factory,
+                          surrogate, and search; run_pipeline.py is the entry point
+                          "Optimize Layout…" invokes
+optimizer/SETUP.md        One-time Python environment setup for the optimizer
 docs/VENUE_FORMAT.md      The .crowdsense.json schema, written for the sim side
 docs/MASKS.md             The four mask types + their *.mask.json export format
 docs/DENSITY_SIMULATION.md The crowd-flow model, its inputs/outputs, and known edge cases
+docs/OPTIMIZER.md         How "Optimize Layout…" works and what it costs a layout on
 examples/sample-venue.json A small fixture venue to develop against
 ```
 

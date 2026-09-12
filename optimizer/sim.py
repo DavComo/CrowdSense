@@ -250,19 +250,21 @@ class Venue:
         self.exits, self.entrances = [], []
         for p in venue.get("points", []):
             g = geo[p["id"]]
-            # width implied by flowRate at the empirical 1.3 people/(m.s),
+            # rate is people per MINUTE (venue format's `throughput` field,
+            # `flowRate` on older files -- arena._throughput reads either)
+            rate_value = arena._throughput(p)
+            # width implied by that rate at the empirical 1.3 people/(m.s),
             # else a standard double door
-            implied = (p["flowRate"] / 60.0 / C_EXIT) if p.get("flowRate") else DOOR_WIDTH_DEFAULT
+            implied = (rate_value / 60.0 / C_EXIT) if rate_value else DOOR_WIDTH_DEFAULT
             width = float(np.clip(implied, 1.0, 6.0))
             cells = self._door_cells(obstacle, room, g["x"], g["y"], width, dx)
             if p.get("type") in ("exit", "emergency-exit"):
-                # flowRate is people per MINUTE (venue format); null -> a
-                # default-width door at the empirical 1.3 people/(m.s).
-                cap = (p["flowRate"] / 60.0) if p.get("flowRate") else C_EXIT * DOOR_WIDTH_DEFAULT
+                # null -> a default-width door at the empirical 1.3 people/(m.s).
+                cap = (rate_value / 60.0) if rate_value else C_EXIT * DOOR_WIDTH_DEFAULT
                 self.exits.append({"id": p["id"], "cells": cells, "capacity": cap,
                                     "name": p.get("name", p["id"])})
             elif p.get("type") == "entrance":
-                rate = (p["flowRate"] or arena.DEFAULT_ENTRANCE_FLOW) / 60.0   # people/s
+                rate = (rate_value or arena.DEFAULT_ENTRANCE_FLOW) / 60.0   # people/s
                 self.entrances.append({"id": p["id"], "cells": cells, "rate": rate,
                                         "queue": 0.0, "name": p.get("name", p["id"])})
 
@@ -276,11 +278,18 @@ class Venue:
             kind = arena._classify_zone(z)
             if kind == "populated":
                 cells = arena._geo_interior_cells(obstacle, room, geo[z["id"]], cell=dx)
-                stick = z.get("stickiness")
+                # capacity/stickiness: honored from the venue file when
+                # present (this project's own synthetic training venues,
+                # from sample_venue.py, set them); otherwise derived from
+                # the zone's own drawn area -- see arena._zone_capacity's
+                # note on why the current editor schema doesn't carry an
+                # explicit headcount.
+                cap = arena._zone_capacity(z, geo[z["id"]])
+                stick = arena._zone_stickiness(z)
                 self.attractors.append({
                     "id": z["id"], "name": z.get("name", z["id"]), "cells": cells,
-                    "capacity": z.get("capacity") or 0,
-                    "draw": float(z.get("capacity") or 1),
+                    "capacity": cap,
+                    "draw": float(cap or 1),
                     "dwell": (stick * 60.0) if stick else DWELL_DEFAULT,
                     "kind": z.get("type", "zone"),
                 })

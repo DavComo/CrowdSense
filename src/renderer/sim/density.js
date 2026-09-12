@@ -39,14 +39,37 @@ import {
 import {
   distance, pointToSegmentDistance, rectBounds, rectCenter, rotatePoint,
 } from '../canvas/geometry.js';
-import { ZONE_BLOCKING_TYPES } from '../model/schema.js';
+import { isZoneWalkable } from '../model/schema.js';
 
 export const PHYSICS_DEFAULTS = {
   vMax: 1.34, // m/s, Weidmann free-flow speed
   gamma: 1.913, // /m^2, Weidmann shape parameter
   rhoMax: 5.4, // people/m^2, modeled standstill density — not a safe-occupancy limit
   epsV: 0.05, // m/s, regularizes the eikonal solve only (never used for transport)
-  routeRecomputeEvery: 10, // steps between eikonal re-solves
+  // Steps between eikonal re-solves. MUST be 1 (every step) — recomputing
+  // only periodically doesn't just lag the routing, it actively causes
+  // large-amplitude oscillation, and this was the actual dominant source
+  // of "pulsing" at higher densities (the CFL/substep fix elsewhere in
+  // this file only fixed a much smaller secondary contributor). Congested
+  // cells route by travel TIME (routeSpeed uses the CURRENT, density-
+  // reduced speed), so as a crowd builds up unevenly, a periodic re-solve
+  // can find a *discontinuously different* "fastest" direction from the
+  // one currently in use — a real jump, not a gradual correction — and
+  // undoing that jump at the NEXT re-solve (now that flow moved and
+  // congestion shifted) creates a genuine flip-flop feedback loop,
+  // amplitude bounded only by rhoMax, repeating every `routeRecomputeEvery`
+  // steps. Measured directly on the sample club floor venue (200 ppl/min
+  // entrance, 1000 max people, 300s): recomputing every 10 steps (the old
+  // default) left cells swinging across virtually the ENTIRE density range
+  // (rhoMax down to near 0) every single recorded frame; every 5 steps was
+  // WORSE (larger, less frequent swings resonating with the recording
+  // cadence); only recomputing every step brought the worst steady-state
+  // swing down by an order of magnitude (to a few tenths of a people/m²,
+  // consistent with ordinary MUSCL grid noise) — recomputing more often
+  // approximates the true continuously-adaptive routing the design calls
+  // for, instead of periodically discarding and re-deciding it in one
+  // discrete jump.
+  routeRecomputeEvery: 1,
 };
 
 export const MAX_SIM_STEPS = 20_000; // guard rail, same spirit as masks.js's MAX_GRID_CELLS
@@ -409,16 +432,15 @@ export function computeSimulationDomain(venue, cellSize) {
   // into at all — the sim's domain is exactly the interior.
   const walkability = computeWalkabilityGrid(venue, cellSize, 0); // domain = W·(1−Bk), see module note above
   const attraction = computeAttractionMask(venue, cellSize, 0);
-  // Only zone *types* that represent an actual physical structure (a
-  // stage platform, a staff-only area) block movement — everything else
-  // (seating/GA floor, a bar's service area, restrooms, merch tables) is
-  // a walkable floor area labeled by purpose, not an obstacle. Blocking
-  // every zone regardless of type was wrong: it made a venue's entire GA
+  // A zone's explicit `walkable` flag (set in the properties panel) says
+  // whether people can stand in/on it — not its `type`. Blocking every
+  // zone regardless of that flag was wrong: it made a venue's entire GA
   // floor (a "seating" zone, often the largest single area in a venue)
   // unwalkable, leaving the crowd with nowhere to actually stand and
   // making the whole venue read as emptier than it should for a given
-  // admitted headcount.
-  const blockingZones = venue.zones.filter((z) => ZONE_BLOCKING_TYPES.has(z.type));
+  // admitted headcount. Files saved before `walkable` existed fall back to
+  // the old type-based default (isZoneWalkable(), schema.js).
+  const blockingZones = venue.zones.filter((z) => !isZoneWalkable(z));
   const zoneFootprint = computeZoneFootprintMask({ ...venue, zones: blockingZones }, cellSize, 0);
   const { cols, rows, originX, originY } = walkability;
   const n = cols * rows;
@@ -586,9 +608,46 @@ export async function runDensitySimulation({
     warnings.push('No walkable floor borders an attraction zone — admitted people have nowhere to route to and will jam at the entrance.');
   }
 
+  // CFL condition for this explicit upwind/MUSCL scheme: a cell's flux
+  // can't legitimately drain more than "itself" in one step, which needs
+  // dt*|u|/cellSize <= 1 per face (the `2` is `2*vMax` as a conservative
+  // bound on |u| across BOTH axes' faces at once, since a diagonal route
+  // pushes flux through an east-west face and a north-south face the same
+  // step). Violating this doesn't fail loudly — every quantity involved
+  // stays finite and in-range — it just makes the explicit update
+  // over-correct each step, and the error compounds: a cell overshoots,
+  // its neighbor overshoots the other way next step to compensate, and
+  // so on, with the SIZE of each overshoot scaling with how much density
+  // (and therefore flux) is actually there to move. At low density the
+  // resulting error is too small to see; at high density it's large
+  // enough to look like the crowd violently oscillating cell to cell
+  // ("pulsing") rather than settling — reproduced directly: with this
+  // app's own default dt=0.2s/cellSize=0.25m (courant 2.14), a single
+  // interior cell was observed swinging 5.4 -> 2.0 -> 5.4 people/m²
+  // between consecutive steps once the crowd packed in, a jump an order
+  // of magnitude larger than one step's worth of physically possible
+  // flow. Rather than rely on the user to pick a dt small enough (and
+  // silently misbehave if they don't), the physics update below runs in
+  // `subSteps` internal sub-steps of `subDt` each — invisible outside
+  // this function (recorded frames, route-recompute cadence, and
+  // progress reporting all still happen once per `dt`) — so the scheme
+  // is always run within its own stability limit regardless of what dt
+  // the UI was given.
+  //
+  // Target an EFFECTIVE courant of 0.5, not the raw 1.0 upwind bound: a
+  // MUSCL/minmod reconstruction is only TVD (guaranteed non-oscillatory)
+  // up to about half the plain-upwind CFL limit, since the half-cell
+  // reconstruction it adds effectively steepens the scheme's sensitivity
+  // to the local wave speed. Measured directly on the same reproduction
+  // above: target 1.0 (raw bound) still left a ~0.3 people/m² steady-state
+  // ripple next to a jammed area; 0.5 cut that to ~0.19; going tighter
+  // still (0.2) only bought a little more (~0.09) for more than double the
+  // extra substeps — 0.5 is the better cost/smoothness tradeoff.
   const courant = (dt * 2 * params.vMax) / cellSize;
-  if (courant > 1) {
-    warnings.push(`Courant number ${courant.toFixed(2)} exceeds 1 (Δt too large for this cell size) — the run may be numerically unstable.`);
+  const subSteps = Math.max(1, Math.ceil(courant / 0.5));
+  const subDt = dt / subSteps;
+  if (subSteps > 1) {
+    warnings.push(`Δt was too large for this cell size (Courant number ${courant.toFixed(2)}) — automatically ran in ${subSteps} internal sub-steps per recorded frame to stay numerically stable.`);
   }
 
   // Ping-pong density buffers to avoid allocating a fresh array every step.
@@ -633,146 +692,154 @@ export async function runDensitySimulation({
 
     if (step % params.routeRecomputeEvery === 0) recomputeRoute();
 
-    // u = f(ρ)·e (4.2): route direction e is frozen between recomputes,
-    // current speed reacts to ρ every step.
-    for (let i = 0; i < n; i++) {
-      currentSpeed[i] = speedFn(rho[i], params);
-      ux[i] = currentSpeed[i] * ex[i];
-      uy[i] = currentSpeed[i] * ey[i];
-    }
-
-    // Finite-volume MUSCL/minmod update (a second-order refinement of
-    // 4.4's first-order upwind scheme — see the module note below). a_cf
-    // is the face-normal component of u (averaged from the two cells it
-    // joins), not the raw speed magnitude — a diagonal route only pushes
-    // its fractional x/y share through each face, the same as a real
-    // directional flow, rather than the full speed through every face
-    // that merely faces "downhill".
-    //
-    // Per-cell limited slopes first (needed by both axes' faces below).
-    // A cell against a wall/domain edge on either side falls back to a
-    // zero slope (plain first-order) there — there's no far-side neighbor
-    // to build a meaningful reconstruction from, and this is also exactly
-    // where an artificial extremum would be easiest to introduce.
-    for (let i = 0; i < n; i++) {
-      if (!domainMask[i]) continue;
-      const col = i % cols;
-      const row = (i / cols) | 0;
-      slopeX[i] = (col > 0 && domainMask[i - 1] && col < cols - 1 && domainMask[i + 1])
-        ? minmod(rho[i] - rho[i - 1], rho[i + 1] - rho[i])
-        : 0;
-      slopeY[i] = (row > 0 && domainMask[i - cols] && row < rows - 1 && domainMask[i + cols])
-        ? minmod(rho[i] - rho[i - cols], rho[i + cols] - rho[i])
-        : 0;
-    }
-
-    netFlux.fill(0);
-    // East-west faces: reconstruct the upwind cell's density half a cell
-    // toward the face (rather than just using its raw cell-center value),
-    // using its own limited slope — this is what actually fixes the
-    // "front races ahead of the true speed" numerical-diffusion artifact
-    // a plain first-order upwind scheme has (worse at a coarser cell
-    // size, since the reconstruction error scales with cell width).
-    for (let row = 0; row < rows; row++) {
-      const rowStart = row * cols;
-      for (let col = 0; col < cols - 1; col++) {
-        const i = rowStart + col;
-        const j = i + 1;
-        if (!domainMask[i] || !domainMask[j]) continue; // wall face: zero length, contributes nothing
-        const a = 0.5 * (ux[i] + ux[j]); // positive = flow i -> j
-        const rhoFace = a >= 0
-          ? Math.max(0, rho[i] + 0.5 * slopeX[i])
-          : Math.max(0, rho[j] - 0.5 * slopeX[j]);
-        const flux = a * rhoFace; // people/(m·s), positive = i -> j
-        netFlux[i] += flux;
-        netFlux[j] -= flux;
-      }
-    }
-    // North-south faces, same scheme along the other axis.
-    for (let row = 0; row < rows - 1; row++) {
-      const rowStart = row * cols;
-      const nextRowStart = rowStart + cols;
-      for (let col = 0; col < cols; col++) {
-        const i = rowStart + col;
-        const j = nextRowStart + col;
-        if (!domainMask[i] || !domainMask[j]) continue;
-        const a = 0.5 * (uy[i] + uy[j]);
-        const rhoFace = a >= 0
-          ? Math.max(0, rho[i] + 0.5 * slopeY[i])
-          : Math.max(0, rho[j] - 0.5 * slopeY[j]);
-        const flux = a * rhoFace;
-        netFlux[i] += flux;
-        netFlux[j] -= flux;
-      }
-    }
-
-    for (let i = 0; i < n; i++) {
-      if (!domainMask[i]) { rhoNext[i] = 0; continue; }
-      // A_c = cellSize^2, ℓ_f = cellSize for open faces -> ℓ_f/A_c = 1/cellSize
-      rhoNext[i] = rho[i] - (dt / cellSize) * netFlux[i];
-    }
-
-    // Sources (capped by maxPeople) and sinks (an exit removes people
-    // whenever it's active, throughout the whole run).
+    // The actual finite-volume advance runs `subSteps` times at `subDt`
+    // each (subSteps===1, subDt===dt when courant<=1 — no behavior change
+    // for a dt that was already stable) so the scheme stays within its
+    // CFL limit regardless of the caller's dt; route direction (e) stays
+    // frozen across them, same as it already was across whole steps.
     let admittedThisStep = 0;
     let removedThisStep = 0;
-    if (nIn < maxPeople) {
-      // Per-door queue (4.6): each door is only ever offered its own rate
-      // in a single step — never faster, even if a backlog has built up
-      // and interior capacity has since opened up (that would mean a
-      // stalled crowd suddenly rushing a door far faster than its actual
-      // capacity, which is exactly what "never faster than r" rules out).
-      // What a door's own rate can't place this step (because the cells
-      // in its patch are full) stays queued and gets first claim on the
-      // next step's placement — so demand is delayed, never dropped.
-      for (const door of entranceDoors) {
-        const offeredThisStep = door.ratePerSecond * dt;
-        door.queue += offeredThisStep;
-        const toPlace = Math.min(door.queue, offeredThisStep);
-        let placed = 0;
-        for (const idx of door.cells) {
-          if (placed >= toPlace) break;
-          const capacityPeople = Math.max(0, params.rhoMax - rho[idx]) * cellArea;
-          const take = Math.min(toPlace - placed, capacityPeople);
-          if (take <= 0) continue;
-          rhoNext[idx] += take / cellArea;
-          placed += take;
+    for (let sub = 0; sub < subSteps; sub++) {
+      // u = f(ρ)·e (4.2): route direction e is frozen between recomputes,
+      // current speed reacts to ρ every sub-step.
+      for (let i = 0; i < n; i++) {
+        currentSpeed[i] = speedFn(rho[i], params);
+        ux[i] = currentSpeed[i] * ex[i];
+        uy[i] = currentSpeed[i] * ey[i];
+      }
+
+      // Finite-volume MUSCL/minmod update (a second-order refinement of
+      // 4.4's first-order upwind scheme — see the module note below). a_cf
+      // is the face-normal component of u (averaged from the two cells it
+      // joins), not the raw speed magnitude — a diagonal route only pushes
+      // its fractional x/y share through each face, the same as a real
+      // directional flow, rather than the full speed through every face
+      // that merely faces "downhill".
+      //
+      // Per-cell limited slopes first (needed by both axes' faces below).
+      // A cell against a wall/domain edge on either side falls back to a
+      // zero slope (plain first-order) there — there's no far-side neighbor
+      // to build a meaningful reconstruction from, and this is also exactly
+      // where an artificial extremum would be easiest to introduce.
+      for (let i = 0; i < n; i++) {
+        if (!domainMask[i]) continue;
+        const col = i % cols;
+        const row = (i / cols) | 0;
+        slopeX[i] = (col > 0 && domainMask[i - 1] && col < cols - 1 && domainMask[i + 1])
+          ? minmod(rho[i] - rho[i - 1], rho[i + 1] - rho[i])
+          : 0;
+        slopeY[i] = (row > 0 && domainMask[i - cols] && row < rows - 1 && domainMask[i + cols])
+          ? minmod(rho[i] - rho[i - cols], rho[i + cols] - rho[i])
+          : 0;
+      }
+
+      netFlux.fill(0);
+      // East-west faces: reconstruct the upwind cell's density half a cell
+      // toward the face (rather than just using its raw cell-center value),
+      // using its own limited slope — this is what actually fixes the
+      // "front races ahead of the true speed" numerical-diffusion artifact
+      // a plain first-order upwind scheme has (worse at a coarser cell
+      // size, since the reconstruction error scales with cell width).
+      for (let row = 0; row < rows; row++) {
+        const rowStart = row * cols;
+        for (let col = 0; col < cols - 1; col++) {
+          const i = rowStart + col;
+          const j = i + 1;
+          if (!domainMask[i] || !domainMask[j]) continue; // wall face: zero length, contributes nothing
+          const a = 0.5 * (ux[i] + ux[j]); // positive = flow i -> j
+          const rhoFace = a >= 0
+            ? Math.max(0, rho[i] + 0.5 * slopeX[i])
+            : Math.max(0, rho[j] - 0.5 * slopeX[j]);
+          const flux = a * rhoFace; // people/(m·s), positive = i -> j
+          netFlux[i] += flux;
+          netFlux[j] -= flux;
         }
-        door.queue -= placed;
-        admittedThisStep += placed;
       }
-    }
-    for (let i = 0; i < n; i++) {
-      if (!exitMask[i]) continue;
-      const sOut = Math.min(-exitRGrid[i], Math.max(0, rho[i] / dt));
-      rhoNext[i] -= dt * sOut;
-      removedThisStep += sOut * dt * cellArea;
-    }
-
-    // Clamp density to [0, rhoMax], logging clipped mass rather than
-    // silently discarding it (4.4). Known consequence, not a bug: a cell
-    // clamped to exactly rhoMax has f(rho)=0 exactly (4.3's speed law has
-    // no floor for transport — 4.2 explicitly reserves epsV for the route
-    // solve only), so it can never emit outflow on its own until an
-    // upstream neighbor's density drops first. A short, intense admission
-    // burst can pin a few cells at exactly rhoMax right by a busy
-    // entrance; they can sit there for a long time even after the rest of
-    // the room has drained. Conservation still holds exactly — the ledger
-    // (4.7) counts this density as "still inside", not lost — so this
-    // shows up as a real, visible hazard (a permanent micro-jam) rather
-    // than a silent error.
-    for (let i = 0; i < n; i++) {
-      if (rhoNext[i] > params.rhoMax) {
-        nClipped += (rhoNext[i] - params.rhoMax) * cellArea;
-        rhoNext[i] = params.rhoMax;
-      } else if (rhoNext[i] < 0) {
-        rhoNext[i] = 0;
+      // North-south faces, same scheme along the other axis.
+      for (let row = 0; row < rows - 1; row++) {
+        const rowStart = row * cols;
+        const nextRowStart = rowStart + cols;
+        for (let col = 0; col < cols; col++) {
+          const i = rowStart + col;
+          const j = nextRowStart + col;
+          if (!domainMask[i] || !domainMask[j]) continue;
+          const a = 0.5 * (uy[i] + uy[j]);
+          const rhoFace = a >= 0
+            ? Math.max(0, rho[i] + 0.5 * slopeY[i])
+            : Math.max(0, rho[j] - 0.5 * slopeY[j]);
+          const flux = a * rhoFace;
+          netFlux[i] += flux;
+          netFlux[j] -= flux;
+        }
       }
-      if (rhoNext[i] > peakDensity[i]) peakDensity[i] = rhoNext[i];
-    }
 
-    // Swap buffers.
-    const swap = rho; rho = rhoNext; rhoNext = swap;
+      for (let i = 0; i < n; i++) {
+        if (!domainMask[i]) { rhoNext[i] = 0; continue; }
+        // A_c = cellSize^2, ℓ_f = cellSize for open faces -> ℓ_f/A_c = 1/cellSize
+        rhoNext[i] = rho[i] - (subDt / cellSize) * netFlux[i];
+      }
+
+      // Sources (capped by maxPeople) and sinks (an exit removes people
+      // whenever it's active, throughout the whole run).
+      if (nIn + admittedThisStep < maxPeople) {
+        // Per-door queue (4.6): each door is only ever offered its own rate
+        // in a single sub-step — never faster, even if a backlog has built
+        // up and interior capacity has since opened up (that would mean a
+        // stalled crowd suddenly rushing a door far faster than its actual
+        // capacity, which is exactly what "never faster than r" rules out).
+        // What a door's own rate can't place this sub-step (because the
+        // cells in its patch are full) stays queued and gets first claim on
+        // the next sub-step's placement — so demand is delayed, never
+        // dropped.
+        for (const door of entranceDoors) {
+          const offeredThisSubstep = door.ratePerSecond * subDt;
+          door.queue += offeredThisSubstep;
+          const toPlace = Math.min(door.queue, offeredThisSubstep);
+          let placed = 0;
+          for (const idx of door.cells) {
+            if (placed >= toPlace) break;
+            const capacityPeople = Math.max(0, params.rhoMax - rho[idx]) * cellArea;
+            const take = Math.min(toPlace - placed, capacityPeople);
+            if (take <= 0) continue;
+            rhoNext[idx] += take / cellArea;
+            placed += take;
+          }
+          door.queue -= placed;
+          admittedThisStep += placed;
+        }
+      }
+      for (let i = 0; i < n; i++) {
+        if (!exitMask[i]) continue;
+        const sOut = Math.min(-exitRGrid[i], Math.max(0, rho[i] / subDt));
+        rhoNext[i] -= subDt * sOut;
+        removedThisStep += sOut * subDt * cellArea;
+      }
+
+      // Clamp density to [0, rhoMax], logging clipped mass rather than
+      // silently discarding it (4.4). Known consequence, not a bug: a cell
+      // clamped to exactly rhoMax has f(rho)=0 exactly (4.3's speed law has
+      // no floor for transport — 4.2 explicitly reserves epsV for the route
+      // solve only), so it can never emit outflow on its own until an
+      // upstream neighbor's density drops first. A short, intense admission
+      // burst can pin a few cells at exactly rhoMax right by a busy
+      // entrance; they can sit there for a long time even after the rest of
+      // the room has drained. Conservation still holds exactly — the ledger
+      // (4.7) counts this density as "still inside", not lost — so this
+      // shows up as a real, visible hazard (a permanent micro-jam) rather
+      // than a silent error.
+      for (let i = 0; i < n; i++) {
+        if (rhoNext[i] > params.rhoMax) {
+          nClipped += (rhoNext[i] - params.rhoMax) * cellArea;
+          rhoNext[i] = params.rhoMax;
+        } else if (rhoNext[i] < 0) {
+          rhoNext[i] = 0;
+        }
+        if (rhoNext[i] > peakDensity[i]) peakDensity[i] = rhoNext[i];
+      }
+
+      // Swap buffers.
+      const swap = rho; rho = rhoNext; rhoNext = swap;
+    }
 
     nIn += admittedThisStep;
     nOut += removedThisStep;

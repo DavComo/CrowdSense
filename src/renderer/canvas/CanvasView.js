@@ -417,11 +417,16 @@ export class CanvasView {
       const color = zone.color || def.color;
       const selected = this.selection?.kind === 'zone' && this.selection.id === zone.id;
       const hovered = this.hoverId === zone.id;
+      const locked = zone.movable === false;
+      const fixedSize = zone.extendable === false;
 
       ctx.save();
       ctx.fillStyle = hexToRgba(color, 0.28);
       ctx.strokeStyle = selected ? '#ffffff' : hovered ? '#ffffff' : color;
       ctx.lineWidth = selected ? 2.5 : 1.5;
+      // Dashed = the optimizer isn't allowed to resize/reshape this zone —
+      // same convention as a fixed-size wall.
+      if (fixedSize) ctx.setLineDash([5, 3]);
 
       if (zone.shape === 'rect') {
         const corners = rotatedRectCorners(zone).map((p) => this.worldToScreen(p));
@@ -430,7 +435,7 @@ export class CanvasView {
         ctx.closePath();
         ctx.fill();
         ctx.stroke();
-        if (selected) {
+        if (selected && !fixedSize) {
           corners.forEach((p) => this._drawHandle(p));
           this._drawRotateHandle(zone);
         }
@@ -441,7 +446,7 @@ export class CanvasView {
         ctx.arc(c.x, c.y, r, 0, Math.PI * 2);
         ctx.fill();
         ctx.stroke();
-        if (selected) this._drawHandle({ x: c.x + r, y: c.y });
+        if (selected && !fixedSize) this._drawHandle({ x: c.x + r, y: c.y });
       } else if (zone.shape === 'polygon' && zone.points.length >= 2) {
         ctx.beginPath();
         zone.points.forEach((p, i) => {
@@ -452,7 +457,7 @@ export class CanvasView {
         ctx.closePath();
         ctx.fill();
         ctx.stroke();
-        if (selected) {
+        if (selected && !fixedSize) {
           zone.points.forEach((p, i) => this._drawHandle(this.worldToScreen(p), this._isVertexSelected('zone', zone.id, i)));
         }
       }
@@ -469,6 +474,9 @@ export class CanvasView {
         ctx.fillText(zone.name || def.label, labelPos.x, labelPos.y);
       }
       ctx.restore();
+      // Offset below the name label (drawn at the same anchor) rather than
+      // on top of it.
+      if (locked && labelPos) this._drawLockBadge({ x: labelPos.x, y: labelPos.y + 16 });
     }
   }
 
@@ -849,7 +857,7 @@ export class CanvasView {
       }
     } else if (kind === 'zone') {
       const zone = this.model.find('zones', id);
-      if (!zone) return null;
+      if (!zone || zone.extendable === false) return null;
       if (zone.shape === 'rect') {
         return this._rectHandleAt(zone, worldPoint, tol);
       } else if (zone.shape === 'circle') {

@@ -152,15 +152,21 @@ function migrateWall(w) {
   return wall;
 }
 
-/** Zones dropped every property that isn't aesthetic or mask-facing:
- * `capacity`/`stickiness`/`movable`/`extendable` are stripped outright
- * (not just left un-rendered) rather than carried forward as orphaned
- * dead data with no UI to edit them. `attraction` used to be a 0–10
- * number; it's boolean now, so an old numeric value becomes `true` if it
- * was positive. Rect zones get a `rotation` if the file predates it. */
+/** Zones: backfill the `movable`/`extendable` optimizer-constraint defaults
+ * for files saved before zones carried them (see schema.js's
+ * DEFAULT_CONSTRAINTS.zone) — a file that already has them (or an explicit
+ * `walkable`) keeps its own values, this only fills in what's missing.
+ * `attraction` used to be a 0–10 number; it's boolean now, so an old
+ * numeric value becomes `true` if it was positive. Rect zones get a
+ * `rotation` if the file predates it. `capacity`/`stickiness` are still
+ * stripped: the editor has no UI for them (only optimizer/'s own synthetic
+ * training venues set them; it derives a substitute from drawn
+ * area/attraction when they're absent — see arena._zone_capacity/
+ * _zone_stickiness). */
 function migrateZone(z) {
-  const { capacity, stickiness, movable, extendable, attraction, ...rest } = z;
+  const { capacity, stickiness, attraction, ...rest } = z;
   const zone = {
+    ...DEFAULT_CONSTRAINTS.zone,
     ...rest,
     attraction: typeof attraction === 'number' ? attraction > 0 : Boolean(attraction),
   };

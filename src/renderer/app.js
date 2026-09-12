@@ -241,6 +241,7 @@ const densityDtInput = document.getElementById('density-dt');
 const densityTotalTimeInput = document.getElementById('density-total-time');
 const densityStatusEl = document.getElementById('density-status');
 const btnRunDensity = document.getElementById('btn-run-density');
+const optimizerTrainSamplesInput = document.getElementById('optimizer-train-samples');
 const btnOptimizeLayout = document.getElementById('btn-optimize-layout');
 
 /** Reads the panel's current inputs and runs a simulation, or returns
@@ -289,8 +290,13 @@ btnRunDensity.addEventListener('click', async () => {
     // Typed arrays (Float32Array/Uint8Array frames, domainMask, etc.) pass
     // through Electron's IPC structured clone natively — no Array.from()
     // conversion needed here, unlike the mask viewer's JSON-export path.
+    // `venue` rides along too, structured-cloned at send time (safe to
+    // pass the live object — later edits here don't reach the already-sent
+    // copy), so the playback window can overlay the actual designed
+    // walls/zones/points on top of the density heatmap.
     await window.crowdsense.openDensityViewer({
       ...result,
+      venue: model.venue,
       title: `${model.venue.meta.name} — Density Simulation`,
     });
   } catch (err) {
@@ -302,53 +308,42 @@ btnRunDensity.addEventListener('click', async () => {
   }
 });
 
-// Remembered for the rest of this session so repeated exports (each
-// "Optimize Layout…" click, and eventually each iteration of an actual
-// optimizer loop once one exists) don't re-prompt for a folder every
-// time — only asks again if the user hasn't picked one yet this session.
-let exportRootFolder = null;
-
+// The optimizer itself now runs inside its own dedicated progress window
+// (see optimizer-viewer.html/.js) rather than blocking this one — this
+// button just hands that window everything it needs to run the pipeline
+// and, later, re-simulate both layouts for a side-by-side comparison.
 btnOptimizeLayout.addEventListener('click', async () => {
-  btnOptimizeLayout.disabled = true;
-  btnOptimizeLayout.textContent = 'Simulating…';
-  densityStatusEl.textContent = 'Starting…';
-
-  try {
-    const run = await runPanelSimulation((frac) => {
-      densityStatusEl.textContent = `Simulating… ${Math.round(frac * 100)}%`;
-    });
-    if (!run) return; // invalid inputs — modal already shown
-    const { engine, result } = run;
-
-    if (!exportRootFolder) {
-      const chosen = await window.crowdsense.chooseExportFolder();
-      if (!chosen) { densityStatusEl.textContent = 'Export canceled.'; return; }
-      exportRootFolder = chosen.folderPath;
-    }
-
-    densityStatusEl.textContent = 'Exporting density maps…';
-    // The optimizer this feeds isn't built yet — this just produces the
-    // files it will eventually read (docs/DENSITY_SIMULATION.md). Typed
-    // arrays pass through IPC as-is, same as openDensityViewer above.
-    const { runDir } = await window.crowdsense.exportDensityRun(exportRootFolder, {
-      ...result,
-      engine,
-      venue: model.venue,
-    });
-
-    densityStatusEl.textContent = `Exported to ${runDir}`;
-
-    await window.crowdsense.openDensityViewer({
-      ...result,
-      title: `${model.venue.meta.name} — Density Simulation`,
-    });
-  } catch (err) {
-    await confirmModal({ title: 'Export failed', message: String(err.message || err) });
-    densityStatusEl.textContent = '';
-  } finally {
-    btnOptimizeLayout.disabled = false;
-    btnOptimizeLayout.textContent = 'Optimize Layout…';
+  const maxPeople = Number(densityMaxPeopleInput.value);
+  const dt = Number(densityDtInput.value);
+  const totalTime = Number(densityTotalTimeInput.value);
+  const trainSamples = Math.round(Number(optimizerTrainSamplesInput.value));
+  if (!(maxPeople > 0) || !(dt > 0) || !(totalTime > 0)) {
+    await confirmModal({ title: 'Invalid simulation parameters', message: 'Max people, time step, and total time must all be positive numbers.' });
+    return;
   }
+  if (!(trainSamples > 0)) {
+    await confirmModal({ title: 'Invalid training sample count', message: 'Training samples must be a positive number.' });
+    return;
+  }
+  await window.crowdsense.openOptimizerViewer({
+    venue: model.venue,
+    engine: densityEngineSelect.value,
+    maxPeople,
+    dt,
+    totalTime,
+    cellSize: view.maskCellSize,
+    trainSamples,
+  });
+});
+
+// The optimizer-viewer window can't reach this window's venue model
+// directly (separate renderer) — it asks main.js to forward the venue
+// here when the user clicks "Load Optimized Layout Into Editor" there.
+window.crowdsense.onApplyOptimizedVenue((venue) => {
+  model.loadFromJSON(JSON.stringify(venue), null);
+  refreshAfterHistoryChange();
+  view.fitToContent();
+  setZoomReadout(view.zoom);
 });
 
 // ---------------------------------------------------------------------------

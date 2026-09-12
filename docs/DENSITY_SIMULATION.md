@@ -40,13 +40,29 @@ In the editor's **Crowd Simulation** panel, set:
   visible reason). Exits work the same way throughout the *entire* run,
   independent of admission — anyone who actually ends up near one can
   leave; nothing pulls the rest of the crowd toward one artificially.
-- **Time step (Δt, seconds)** — for the continuum engine, the finite-
-  volume solver's own time discretization (the panel warns if it violates
-  the CFL condition for the chosen cell size). For the agent engine, this
-  only controls how often a frame is *recorded* — the physics itself
-  always integrates at a fixed, finer internal resolution regardless of
-  this value, since the social-force term is numerically stiff (see
-  `native/crowd_sim.c`'s module note).
+- **Time step (Δt, seconds)** — for both engines, this only controls how
+  often a frame is *recorded* (and, for the continuum engine, how often
+  the route direction re-solves) — the physics itself always integrates
+  internally at whatever finer resolution its own stability actually
+  needs, regardless of this value. The agent engine's social-force term is
+  numerically stiff (see `native/crowd_sim.c`'s module note) and has
+  always worked this way; the continuum engine's finite-volume update
+  wasn't substepped until this was found to let it violate its own CFL
+  condition with this panel's own *default* Δt/cell size (a Courant number
+  over 2×, only ever *warned* about, never prevented) — invisible at low
+  density, but large enough at high density to look like the crowd
+  oscillating wildly cell to cell ("pulsing") instead of settling,
+  reproduced directly as a single cell swinging from 5.4 to 2.0 and back
+  to 5.4 people/m² across consecutive recorded steps. Fixed the same way
+  the agent engine already handled it: the update now runs in as many
+  internal sub-steps as its own Courant number needs (with a safety
+  margin, since a MUSCL/minmod scheme isn't oscillation-free at the raw
+  upwind CFL limit) — transparent to everything else (recorded frame
+  count, route-recompute cadence, run length all stay exactly as
+  configured), surfaced only as a "ran in *N* internal sub-steps to stay
+  numerically stable" note if it ever actually had to. This alone wasn't
+  the dominant cause of "pulsing" in practice, though — see step 5 below
+  for the bigger contributor (the route-recompute cadence itself).
 - **Total time (seconds)** — the simulated horizon. If people are still
   inside when this is reached, the run just stops there (nothing crashes;
   the ledger and final frames still reflect an honest, if incomplete,
@@ -61,42 +77,30 @@ shown) — useful for comparing two specific spots (e.g. "stage front" vs
 "back of the crowd") with a real number instead of relying on how two
 colors look next to each other on the colormap.
 
-## Exporting a run for the (future) layout optimizer
+Stacked on top of the heatmap, at full vector resolution (not the density
+grid's own blocky cell resolution), is the **same view the editor draws**:
+walls, zones (translucent fill, outline, name label), and entrance/exit
+points (glyph, name), each in the exact color/shape you drew them in —
+replacing what used to be a bare "wall or not" mask with the actual
+designed venue, so the simulation reads against the floor plan you
+recognize rather than an abstraction of it. It's a separate `<canvas>`
+layered exactly over the density canvas (`src/renderer/density-viewer.js`'s
+`drawDesignerOverlay`), drawn once per run since the venue's geometry is
+static during playback, and it never intercepts the mouse — hovering for
+an exact density reading still works right through it. The side-by-side
+comparison view (below) gives each pane its own overlay, since the
+optimizer may have moved, resized, or removed elements between the
+"before" and "after" venues.
 
-**Optimize Layout…**, next to **Simulate Density…**, runs the same
-simulation with the panel's current settings and writes the result to
-disk instead of (well, in addition to) just opening the playback window.
-This is a data-export feature only — there's no optimizer reading these
-files yet; it produces the files one will eventually consume, so that
-piece can be built against a real, stable format instead of a guess.
+## The layout optimizer
 
-The first click asks where to put runs (remembered for the rest of the
-session — later clicks, and eventually an automated optimizer loop, don't
-re-prompt). Each run gets its own timestamped subfolder:
-
-```
-run-2026-09-12T06-49-22-549Z/
-  manifest.json          # shape, cellSize, origin, dt/totalTime/maxPeople,
-                          # times[], ledger, metrics, warnings, the full
-                          # venue as of this run, and relative paths to
-                          # the files below
-  domain_mask.bin         # uint8, rows*cols, row-major (1 = walkable)
-  peak_density.bin        # float32, rows*cols, row-major
-  frames/
-    frame_0000.bin        # float32, rows*cols, row-major — one per
-    frame_0001.bin        # entry in manifest.json's `times`
-    ...
-```
-
-Deliberately raw binaries + a JSON manifest, not one big JSON file:
-hundreds of frames × thousands of cells as nested JSON arrays is slow to
-parse at the scale a repeatedly-iterating optimizer would hit, while a
-flat float32/uint8 buffer loads in one call in numpy (`np.fromfile(path,
-dtype=np.float32).reshape(rows, cols)`) or effectively any other
-language. `venue` is included as a full, valid venue JSON object (not a
-separate file) — an optimizer's whole job is proposing edits to that
-same structure and re-running, so it needs the exact input a run was
-produced from, not just the output.
+**Optimize Layout…**, next to **Simulate Density…**, is a different
+feature from the two engines above — it doesn't run either of them. It
+invokes [`optimizer/`](../optimizer), a semi-separate Python project (its
+own Hughes-continuum simulator, data factory, surrogate model, and
+search) merged into this repo, which re-simulates the venue itself many
+times over. See [`docs/OPTIMIZER.md`](OPTIMIZER.md) for how that works
+and what it costs a layout on.
 
 ## Why two simulators
 
@@ -148,10 +152,22 @@ A.3 checks its own parameter table against):
   crowd compress well past its configured size with almost no
   resistance) plus a stiffer "body" term once two people are actually
   touching, so the crowd doesn't visibly interpenetrate at high density;
-  and the same repulsion from the nearest wall/blocked cell. Integrated
-  with semi-implicit (symplectic) Euler, which crowd_flow_design_v0.2.md's
-  own Appendix A.3 also references for exactly this kind of spring-like
-  force.
+  and the same repulsion from nearby wall/blocked cells. Integrated with
+  semi-implicit (symplectic) Euler, which crowd_flow_design_v0.2.md's own
+  Appendix A.3 also references for exactly this kind of spring-like force.
+  Wall repulsion is a SOFT minimum over every blocked cell within range,
+  not a hard "just the single nearest one": right at a corner (two walls
+  meeting at an angle), a hard nearest-cell pick flips discontinuously as
+  an agent's position crosses the bisector between the two walls, and the
+  repulsion direction jumps with it — an agent sitting near that bisector
+  (exactly where crowd pressure pushes it, into the corner) then
+  oscillates back and forth across the flip, indefinitely. This was a
+  real, measured contributor to "the crowd pulsing," concentrated at
+  exactly the room's geometric corners; weighting every nearby candidate
+  cell by how much farther it is than the true nearest one, and averaging
+  their positions, blends smoothly through the corner instead (a flat
+  wall's own nearest cell still dominates the weighted sum well away from
+  a corner, so this doesn't change anything there).
 - **Numerically stiff, so it substeps internally.** The pairwise
   repulsion term is realistically stiff at short range — real social-
   force implementations integrate at roughly 0.01–0.02s regardless of
@@ -188,6 +204,43 @@ A.3 checks its own parameter table against):
   from nothing). A density map is inherently a neighborhood estimate —
   how many people are around *here* — not a literal per-tiny-cell count,
   so this is the more correct choice, not just a smoother-looking one.
+- **Frames are recorded far more densely than the continuum engine's own
+  ~150-frame target — 1500 by default, each an instantaneous snapshot,
+  not an average.** An earlier attempt to fix "the crowd pulsing between
+  recorded frames" widened this kernel to σ=1.0m and additionally
+  *averaged* every raw physics step's rasterization since the last
+  recorded frame together into each played-back frame. That measurably
+  reduced frame-to-frame noise, but was reverted after direct user
+  feedback that it blurred away the per-person texture this engine exists
+  to show in the first place — a real regression, not a worthwhile trade.
+  Chasing the actual cause instead (tracing individual agents' raw
+  position and velocity every single ~0.02s physics sub-step, across
+  several agents in the scenario's apparently "pulsing" quiet corner)
+  found **zero** velocity-zeroing or oscillation events — agents there
+  were moving smoothly and substantially the whole time; it wasn't a
+  quiet corner at all, but a flow corridor. The real cause was the
+  *playback*, not the physics: at only ~150 recorded frames for a 300s
+  run, played back at a fixed 20fps, each recorded frame is ~2 simulated
+  seconds apart — long enough for an agent moving at ~1.3 m/s to cover
+  ~2.6m, more than 10 grid cells at a typical 0.25m cell size. Two
+  *displayed* frames that far apart look like a jump cut even when the
+  underlying motion (as traced directly) is perfectly smooth. The fix is
+  to record 10x as many frames (1500) — no blurring of any single frame's
+  own content — which measurably drops the average
+  |consecutive-frame density change| per walkable cell by roughly 60% on
+  the sample club floor scenario (a busy main entrance, 1000-person cap),
+  for a proportional but still small amount of extra time (rasterizing
+  more often) and memory (a few tens of MB for a typical venue). The
+  wall-repulsion corner-blend fix above is kept — it's a genuine,
+  non-blurring improvement, unrelated to this playback issue. Some
+  residual per-frame texture in lightly-occupied areas is expected and
+  correct: a handful of discrete agents wandering through a small patch
+  really does swing that patch's headcount (and so its KDE-rasterized
+  density) from one moment to the next — ordinary small-sample
+  statistical variance, not a bug, and not something a density *map*
+  should hide. The continuum engine has no such texture at all (it's a
+  smooth field, not discrete individuals) if a perfectly smooth reading
+  matters more than per-person detail for a given venue.
 - Runs in [`native/crowd_sim.c`](../native/crowd_sim.c), compiled to
   WebAssembly (see [`native/BUILD.md`](../native/BUILD.md)) — chosen over
   a native Node addon specifically so nobody needs a native build
@@ -248,8 +301,23 @@ the continuum engine's own per-cell density field.
    travel-time field toward the attraction approach ring — every admitted
    person routes toward an attraction for the entire run (see "Max
    people" above); the exit routing target and the automatic switch to it
-   that an earlier version had are gone — re-solved periodically as
-   density reshapes the effective speed field.
+   that an earlier version had are gone — re-solved every step as density
+   reshapes the effective speed field (not periodically: an earlier
+   version re-solved only every 10 steps as a performance shortcut, but
+   that turned out to be the dominant cause of "the crowd pulsing at
+   higher densities" — a periodic re-solve can find a *discontinuously*
+   different "fastest" direction from the one currently in use as
+   congestion shifts, and undoing that jump at the next re-solve creates
+   a real flip-flop feedback loop, amplitude bounded only by ρ_max,
+   repeating every N steps. Re-solving every step approximates the
+   continuously-adaptive routing the model calls for instead of
+   periodically discarding and re-deciding it in one discrete jump —
+   measured directly on the sample club floor venue at higher admission:
+   the worst cell's steady-state swing dropped by roughly an order of
+   magnitude, and the *average* swing across every walkable cell dropped
+   by roughly 200×. Still solved via the Fast Marching Method, which
+   scales well enough that every-step re-solving remains fast in
+   practice.)
 6. Derives an actual route-direction vector `e = −∇φ/‖∇φ‖` from that field
    (central differences of φ, same as it re-solves), so each cell has a
    genuine 2D velocity `u = f(ρ)·e` — not just a scalar speed.
@@ -303,11 +371,19 @@ the continuum engine's own per-cell density field.
   `phaseSwitchTime` is `null` for the same reason. Both are kept as
   fields, rather than removed, in case a future run mode reintroduces an
   explicit evacuation trigger the metric can anchor to.
+- This is `runDensitySimulation`'s own return shape — it has no opinion
+  about the venue that produced it. The caller (`app.js`'s "Simulate
+  Density…" handler, or `optimizer-viewer.js`'s comparison flow) adds a
+  `venue` field before handing the payload to the density-viewer window,
+  so the playback can draw the designer overlay described above.
 - **`warnings`** flags venue-level issues cheaply, before or after the run
   finishes: no entrances (nobody enters), no exits (nobody can leave), no
   attraction zones while there are entrances (admitted people have nowhere
-  to route to and jam at the door), or a Δt/cell-size combination that
-  exceeds the CFL stability limit.
+  to route to and jam at the door), or a Δt/cell-size combination whose
+  Courant number needed internal sub-stepping to stay stable (see "Time
+  step" above — this used to just warn that the run "may be numerically
+  unstable" and proceed anyway; it's now handled automatically, and the
+  warning just says so).
 
 ## The playback legend isn't scaled to the raw peak
 

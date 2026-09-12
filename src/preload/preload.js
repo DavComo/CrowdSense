@@ -17,8 +17,7 @@ contextBridge.exposeInMainWorld('crowdsense', {
     ipcRenderer.invoke('dialog:export-mask', { contents, defaultPath }),
   openMaskViewer: (payload) => ipcRenderer.invoke('window:open-mask-viewer', payload),
   openDensityViewer: (payload) => ipcRenderer.invoke('window:open-density-viewer', payload),
-  chooseExportFolder: () => ipcRenderer.invoke('dialog:choose-export-folder'),
-  exportDensityRun: (rootDir, payload) => ipcRenderer.invoke('export:density-run', { rootDir, payload }),
+  openOptimizerViewer: (payload) => ipcRenderer.invoke('window:open-optimizer-viewer', payload),
 
   onMenu: (channel, callback) => {
     const validChannels = [
@@ -36,5 +35,14 @@ contextBridge.exposeInMainWorld('crowdsense', {
     const listener = (_event, ...args) => callback(...args);
     ipcRenderer.on(channel, listener);
     return () => ipcRenderer.removeListener(channel, listener);
+  },
+
+  // The optimizer-viewer window can't reach this window's venue model
+  // directly (separate renderer) — it asks main.js to forward the
+  // optimized venue here once the user chooses to apply it.
+  onApplyOptimizedVenue: (callback) => {
+    const listener = (_event, venue) => callback(venue);
+    ipcRenderer.on('optimizer:apply-venue-to-editor', listener);
+    return () => ipcRenderer.removeListener('optimizer:apply-venue-to-editor', listener);
   },
 });

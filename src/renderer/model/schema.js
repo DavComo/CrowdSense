@@ -19,11 +19,21 @@ export const ZONE_TYPES = {
 // stand on or in — a raised stage platform, a staff-only area — as
 // opposed to every other type, which just labels a walkable floor area
 // by its purpose (seating/GA floor, a bar counter's service area, a
-// restroom, a merch table). Used only by the density simulator, to
-// decide which zones to treat as obstacles like a wall (see
-// docs/DENSITY_SIMULATION.md) — not by the walkability/mask panel, which
-// keeps its own "zones never block" convention (docs/MASKS.md).
+// restroom, a merch table). This is only the DEFAULT a newly-drawn zone's
+// explicit `walkable` field starts from (see isZoneWalkable() below) —
+// not by the walkability/mask panel, which keeps its own "zones never
+// block" convention (docs/MASKS.md).
 export const ZONE_BLOCKING_TYPES = new Set(['stage', 'restricted']);
+
+// Whether people can walk into/onto a zone — an explicit per-zone choice
+// (a "restricted" zone might still be a walkable corridor staff cross
+// through; a "custom" zone might be a solid prop nobody can stand on).
+// Falls back to the old type-based default for venue files saved before
+// this field existed, so nothing changes for files nobody has re-saved.
+export function isZoneWalkable(zone) {
+  if (typeof zone.walkable === 'boolean') return zone.walkable;
+  return !ZONE_BLOCKING_TYPES.has(zone.type);
+}
 
 // Points are only ever an entrance or an exit — that's the only distinction
 // the entrance/exit-rate mask cares about (sign: positive for entrance,
@@ -39,14 +49,16 @@ export const UNITS = {
 };
 
 // `movable`/`extendable` say what the optimizer is allowed to touch — the
-// editor itself also respects them (a locked wall can't be dragged/resized
-// here either). Walls are the only thing that carries these: they're what
-// the barrier mask (docs/MASKS.md) is built from, so they're the only
-// element type where the distinction actually feeds a mask. Zones and
-// points dropped these fields for the same reason they dropped every other
-// property that isn't aesthetic or mask-facing.
+// editor itself also respects them (a locked wall/zone can't be
+// dragged/resized here either). Walls default to fixed ("permanent
+// structure"); zones default to fully optimizer-editable, matching what
+// optimizer/arena.py already assumed (`z.get("movable", True)`) before the
+// editor could express the distinction at all. Points still don't carry
+// these — a point's position isn't independent (see docs/VENUE_FORMAT.md's
+// entrance/exit snapping note).
 export const DEFAULT_CONSTRAINTS = {
-  wall: { movable: false, extendable: false }, // walls default to "permanent structure"
+  wall: { movable: false, extendable: false },
+  zone: { movable: true, extendable: true },
 };
 
 export function makeId(prefix = 'id') {

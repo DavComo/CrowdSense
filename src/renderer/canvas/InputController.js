@@ -1,4 +1,4 @@
-import { makeId, ZONE_TYPES, POINT_TYPES, DEFAULT_CONSTRAINTS } from '../model/schema.js';
+import { makeId, ZONE_TYPES, POINT_TYPES, DEFAULT_CONSTRAINTS, ZONE_BLOCKING_TYPES } from '../model/schema.js';
 import { distance, rectBounds, rectCenter, rotatePoint, rotatedRectCorners, normalizeAngleDiff } from './geometry.js';
 
 const MIN_SHAPE_SIZE = 0.15; // world units — below this, a drag is treated as a misclick
@@ -824,6 +824,8 @@ export class InputController {
       name: `Zone ${n}`,
       color: ZONE_TYPES.custom.color,
       attraction: false, // whether people gravitate here — the attraction mask is binary
+      walkable: !ZONE_BLOCKING_TYPES.has('custom'), // true — 'custom' isn't a blocking type by default
+      ...DEFAULT_CONSTRAINTS.zone,
       ...shapeFields,
     };
     this.model.venue.zones.push(zone);

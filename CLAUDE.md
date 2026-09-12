@@ -187,7 +187,48 @@ disconnected/overcapacity layouts — do not fold it back into `cost`.
   away just walked it into a wall and the containment clamp walked it
   right back. Fixed: a fallback pass that shrinks the smaller box along
   the less-overlapped axis (floored at 1m) when translation alone can't
-  resolve it. Down to ~5% residual (harder multi-zone cases) — see below.
+  resolve it. Down to ~5% residual (harder multi-zone cases, or a movable
+  zone against one the designer locked — `_resolve_overlaps` now keeps
+  movable zones off EVERY other zone, not just other movable ones).
+- **`run_pipeline.py` picked the winning candidate by raw `min(cost)`,
+  never checking `sim.is_valid()`/`disconnected` at all** — despite
+  `appraise()`'s own docstring warning this exact thing has to be filtered
+  separately. A region the model thinks nobody can reach legitimately
+  contributes zero excess-density cost, so a candidate that disconnected
+  part of the floor from the crowd (via a rasterization/connectivity
+  artifact, not an actual improvement) could win outright. Caught in
+  practice: a real run's lowest-cost candidate (an apparent 82%
+  improvement) was disconnected. Fixed: every candidate is now checked
+  with `sim.is_valid()` across its whole scenario suite, sorted by
+  `(invalid, cost)` instead of `cost` alone, so an invalid candidate never
+  outranks a valid one regardless of how good its cost looks.
+- **Nothing may overlap anything — except furniture standing inside a
+  WALKABLE zone, which is normal (a column in the GA floor).** Two zones,
+  or two pieces of furniture, must never overlap, no exceptions. Furniture
+  inside a NON-walkable zone (a stage, restricted area -- already an
+  obstacle) still counts as a real overlap; walkability follows the same
+  `walkable`-field-first, `stage`/`restricted`-type-fallback rule as
+  everywhere else (`_classify_zone`). `_resolve_overlaps`'s best-effort
+  fallback (~5% residual) deliberately only corrects WITHIN a kind (zone
+  vs zone, solid wall vs solid wall) — an earlier attempt to also have it
+  actively correct zone-vs-furniture broke `default_u`'s "reproduce the
+  file exactly" guarantee on 3 real venues that draw furniture inside a
+  zone (caught by `validate_venue.py`'s round-trip check), so that part
+  was reverted. Instead, a hard gate on top catches everything not
+  excepted, no exceptions beyond the one above, same pattern as
+  `disconnected`: `arena.layout_overlaps()` checks every zone-zone,
+  wall-wall, and wall-vs-non-walkable-zone pair in the FINAL decoded
+  layout (wall-vs-walkable-zone is skipped by design), and
+  `run_pipeline.py` disqualifies any candidate it flags, regardless of
+  cost. A venue whose original layout already has a
+  furniture-in-a-non-walkable-zone relationship will legitimately show
+  `original` as invalid too (explicitly accepted tradeoff, not a bug).
+  Verified: furniture forced onto a walkable zone is allowed, the same
+  forced onto a non-walkable (stage) zone is still flagged, zone-vs-zone
+  and furniture-vs-furniture stay disallowed even between two walkable
+  zones/two ordinary pieces of furniture, the corrector still resolves an
+  ordinary same-kind conflict on its own, and a real venue's original,
+  untouched round-trip stays intact.
 - The design doc's `J = (1,3,3)·(T95/T_ref, A_danger/A, maxP/P*)` blend is
   ~99% a pressure-only objective in disguise (`maxP/P*≈130` vs `≈1` for the
   rest). Replaced with the pure density cost above.
@@ -200,24 +241,20 @@ disconnected/overcapacity layouts — do not fold it back into `cost`.
 
 ## Known, NOT-yet-fixed issues
 
-1. **Zone-vs-zone overlap, residual ~5%.** The shrink fallback handles most
-   cases; a few (near-`MIN_DIM`, or 3+ mutually overlapping zones) can
-   still slip through. The density cost already discourages the resulting
-   overcrowding; a hard packing solver would close the rest.
-2. **`flux_inversion_density`'s bottleneck handling is flat** — an
+1. **`flux_inversion_density`'s bottleneck handling is flat** — an
    over-capacity cell is stamped RHO_MAX rather than propagating a
    realistic queue upstream. Explicitly left open (see its own docstring)
    as the next density-model idea: a queueing/backpressure pass over the
    same flux field.
-3. **`flux_inversion_density` on evacuation/headliner uses a labeled
+2. **`flux_inversion_density` on evacuation/headliner uses a labeled
    approximation** (`population / T_REF`) since those scenarios have no
    true steady state. Use `"simulated_peak"` as ground truth there.
-4. **`_geo_ring_cells` (queueing rings for hotspot/entrance-surge targets)
+3. **`_geo_ring_cells` (queueing rings for hotspot/entrance-surge targets)
    still uses a bbox approximation** for circle/polygon zones — lower
    priority than the interior-cells fix above since it only affects
    routing TARGET placement for oddly-shaped stages, not where population
    actually stands.
-5. Only `examples/sample-venue.json` has a trained U-Net + verified search
+4. Only `examples/sample-venue.json` has a trained U-Net + verified search
    result. The generalization claim (16/16 `validate_venue.py`) is about
    the pipeline running clean everywhere, not about having optimized all
    of them — running `factory.py`/`run_unet_pipeline.py` against a second

@@ -47,7 +47,63 @@ import numpy as np
 CELL = 0.4            # metres per grid cell
 WALK_SPEED = 1.3       # m/s
 SURGE_MINUTES = 5.0    # entrance_surge scenario: minutes of arrivals modeled
-DEFAULT_ENTRANCE_FLOW = 60.0   # people/min, used if an entrance has no flowRate
+DEFAULT_ENTRANCE_FLOW = 60.0   # people/min, used if an entrance has no rate set
+DEFAULT_OCCUPANCY_DENSITY = 1.5   # people/m^2 -- a comfortably-occupied crowd
+                                   # density (well under sim.py's own RHO_SAFE,
+                                   # the Fruin LoS D/E threshold of 2.5/m^2),
+                                   # used to derive a zone's capacity from its
+                                   # drawn area when the venue file doesn't
+                                   # carry an explicit one -- see _zone_capacity
+DEFAULT_STICKINESS_MIN = 20.0      # minutes -- how long an attraction holds a
+                                   # crowd before "releasing" them, used the
+                                   # same way (see _zone_stickiness)
+PRESENCE_THRESHOLD = 0.5   # a removable element's extra "presence" param
+                           # (see REMOVABLE_KINDS) decodes to "removed" below
+                           # this, "kept" at or above it
+
+
+def _throughput(p):
+    """A point's people/minute rate. The current CrowdSense editor schema
+    (docs/VENUE_FORMAT.md) names this field `throughput`; some older files
+    (and this project's own earlier scripts) used `flowRate` for the same
+    value -- the editor itself migrates `flowRate` -> `throughput` on load,
+    so read either here, preferring the current name."""
+    return p.get("throughput", p.get("flowRate"))
+
+
+def _zone_area(geo):
+    """Floor area of a zone's shape, in the venue's own units squared --
+    used by _zone_capacity below."""
+    if geo["shape"] == "rect":
+        return abs(geo["w"] * geo["h"])
+    if geo["shape"] == "circle":
+        return np.pi * geo["r"] ** 2
+    pts = geo["points"]
+    n = len(pts)
+    total = 0.0
+    for i in range(n):
+        x1, y1 = pts[i]["x"], pts[i]["y"]
+        x2, y2 = pts[(i + 1) % n]["x"], pts[(i + 1) % n]["y"]
+        total += x1 * y2 - x2 * y1
+    return abs(total) / 2.0
+
+
+def _zone_capacity(z, geo):
+    """How many people a zone draws as a crowd source/attractor. The
+    current CrowdSense editor schema only carries a boolean `attraction`
+    flag on a zone -- no explicit headcount -- so this derives one from
+    the zone's drawn floor area at a comfortably-occupied density, unless
+    the venue file already specifies a capacity explicitly (this
+    project's own synthetic training venues, from sample_venue.py, do)."""
+    if z.get("capacity"):
+        return z["capacity"]
+    return DEFAULT_OCCUPANCY_DENSITY * _zone_area(geo)
+
+
+def _zone_stickiness(z):
+    """Minutes a zone holds its crowd before releasing them -- same
+    fallback logic as _zone_capacity."""
+    return z.get("stickiness") or DEFAULT_STICKINESS_MIN
 
 # --- 1. load -------------------------------------------------------------
 def load(path):
@@ -129,10 +185,30 @@ def _translate_geo(geo, dx, dy):
 
 def _classify_zone(z):
     """obstacle: physically blocks movement. populated: a crowd source/sink.
-    inert: floor space with nobody assigned (decorative), walkable."""
-    if z.get("type") in ("stage", "restricted"):
+    inert: floor space with nobody assigned (decorative), walkable.
+
+    The editor now lets a user set an explicit `walkable` boolean per zone
+    (whether people can walk into/onto it) -- honored first, since it's a
+    deliberate choice that should override the type-based guess below (a
+    "restricted" zone might still be a walkable staff corridor; a "custom"
+    zone might be a solid prop). Absent that (older files, or this
+    project's own synthetic training venues from sample_venue.py, which
+    don't set it), fall back to the old type-based default: `stage`/
+    `restricted` block, everything else doesn't.
+
+    A zone also counts as populated if it's marked `attraction: true`
+    (people are drawn there on purpose), is a `seating` zone (the general
+    crowd floor -- where most of a real crowd actually ends up standing,
+    attraction flag or not), or has an explicit `capacity` (this project's
+    own synthetic training venues set one; honored first when present)."""
+    walkable = z.get("walkable")
+    if walkable is False:
+        return "obstacle"
+    if walkable is None and z.get("type") in ("stage", "restricted"):
         return "obstacle"
     if (z.get("capacity") or 0) > 0:
+        return "populated"
+    if z.get("attraction") or z.get("type") == "seating":
         return "populated"
     return "inert"
 
@@ -186,14 +262,23 @@ class Spec:
         self.bounds = bounds     # placement extent (inside the shell)
         self.venue = venue
 
-def _nparams(shape, extendable):
-    return {
+def _nparams(shape, extendable, removable=False):
+    n = {
         "rect":    4 if extendable else 2,
         "circle":  3 if extendable else 2,
         "line":    3 if extendable else 2,
         "polygon": 3 if extendable else 2,
         "point":   2,
     }[shape]
+    return n + 1 if removable else n   # +1: the trailing "presence" param
+
+# Movable WALLS (furniture-like obstacles: pillars, blocks, movable
+# dividers) can be removed entirely by the optimizer, not just repositioned
+# -- a layout might genuinely be better without a given piece of furniture.
+# Zones are excluded (a zone is an area/purpose label, not a prop to delete)
+# and so are points (an entrance/exit -- or a fixed wall, which was never a
+# decision variable to begin with -- must always exist).
+REMOVABLE_KINDS = ("wall",)
 
 def build_spec(venue):
     room = _room_bbox(venue)
@@ -203,8 +288,10 @@ def build_spec(venue):
     for w in venue.get("walls", []):
         if w.get("movable", False):
             geo0 = _wall_geo(w); ext = w.get("extendable", False)
-            n = _nparams(geo0["shape"], ext)
-            entries.append({"kind": "wall", "id": w["id"], "geo0": geo0, "extendable": ext, "off": off, "n": n})
+            removable = "wall" in REMOVABLE_KINDS
+            n = _nparams(geo0["shape"], ext, removable=removable)
+            entries.append({"kind": "wall", "id": w["id"], "geo0": geo0, "extendable": ext,
+                             "removable": removable, "off": off, "n": n})
             off += n
     for z in venue.get("zones", []):
         if z.get("movable", True):
@@ -234,14 +321,26 @@ def _circle_r_bounds(geo0, room):
     return r_lo, r_hi
 
 def _decode_entry(entry, uv, room):
+    """Decodes one entry's slice of the parameter vector into concrete
+    geometry -- or None if a REMOVABLE entry's trailing "presence" number
+    (the last slot of `uv`, see _nparams/REMOVABLE_KINDS) says this
+    candidate doesn't include the element at all. Position/size still
+    decode normally either way (from the remaining slots) so a
+    marginally-removed candidate still has a well-defined geometry to
+    fall back to, and so a search that nudges presence back up doesn't
+    also have to relearn a position from scratch."""
     geo0, ext = entry["geo0"], entry["extendable"]
+    removable = entry.get("removable", False)
+    presence = None
+    if removable:
+        uv, presence = uv[:-1], uv[-1]
     rx0, ry0, rx1, ry1 = room
     shape = geo0["shape"]
 
     if shape == "point":
-        return {"shape": "point", "x": lerp(uv[0], rx0, rx1), "y": lerp(uv[1], ry0, ry1)}
+        geo = {"shape": "point", "x": lerp(uv[0], rx0, rx1), "y": lerp(uv[1], ry0, ry1)}
 
-    if shape == "rect":
+    elif shape == "rect":
         if ext:
             w_lo, w_hi, h_lo, h_hi = _rect_size_bounds(geo0, room)
             w = lerp(uv[0], w_lo, w_hi); h = lerp(uv[1], h_lo, h_hi)
@@ -249,9 +348,9 @@ def _decode_entry(entry, uv, room):
         else:
             w, h = geo0["w"], geo0["h"]
             x = lerp(uv[0], rx0, max(rx0, rx1 - w)); y = lerp(uv[1], ry0, max(ry0, ry1 - h))
-        return {"shape": "rect", "x": x, "y": y, "w": w, "h": h}
+        geo = {"shape": "rect", "x": x, "y": y, "w": w, "h": h}
 
-    if shape == "circle":
+    elif shape == "circle":
         if ext:
             r_lo, r_hi = _circle_r_bounds(geo0, room)
             r = lerp(uv[0], r_lo, r_hi)
@@ -259,31 +358,44 @@ def _decode_entry(entry, uv, room):
         else:
             r = geo0["r"]
             cx = lerp(uv[0], rx0 + r, max(rx0 + r, rx1 - r)); cy = lerp(uv[1], ry0 + r, max(ry0 + r, ry1 - r))
-        return {"shape": "circle", "cx": cx, "cy": cy, "r": r}
+        geo = {"shape": "circle", "cx": cx, "cy": cy, "r": r}
 
-    # line / polygon: translate the whole shape, optionally uniform-scale
-    # about its own centroid first -- generalizes "move the divider" to
-    # "move (and resize) any polyline or polygon".
-    pts0 = geo0["points"]
-    x0, y0, x1, y1 = _bbox_of_points(pts0)
-    ccx, ccy = (x0 + x1) / 2, (y0 + y1) / 2
-    i = 0
-    s = 1.0
-    if ext:
-        s = lerp(uv[0], 0.6, 1.6); i = 1
-    pts = [{"x": ccx + (p["x"] - ccx) * s, "y": ccy + (p["y"] - ccy) * s} for p in pts0]
-    bx0, by0, bx1, by1 = _bbox_of_points(pts)
-    w, h = bx1 - bx0, by1 - by0
-    dx = lerp(uv[i], rx0 - bx0, max(rx0 - bx0, (rx1 - w) - bx0))
-    dy = lerp(uv[i + 1], ry0 - by0, max(ry0 - by0, (ry1 - h) - by0))
-    pts = [{"x": p["x"] + dx, "y": p["y"] + dy} for p in pts]
-    out = {"shape": shape, "points": pts}
-    if shape == "line":
-        out["thickness"] = geo0.get("thickness", 0.25)
-    return out
+    else:
+        # line / polygon: translate the whole shape, optionally uniform-scale
+        # about its own centroid first -- generalizes "move the divider" to
+        # "move (and resize) any polyline or polygon".
+        pts0 = geo0["points"]
+        x0, y0, x1, y1 = _bbox_of_points(pts0)
+        ccx, ccy = (x0 + x1) / 2, (y0 + y1) / 2
+        i = 0
+        s = 1.0
+        if ext:
+            s = lerp(uv[0], 0.6, 1.6); i = 1
+        pts = [{"x": ccx + (p["x"] - ccx) * s, "y": ccy + (p["y"] - ccy) * s} for p in pts0]
+        bx0, by0, bx1, by1 = _bbox_of_points(pts)
+        w, h = bx1 - bx0, by1 - by0
+        dx = lerp(uv[i], rx0 - bx0, max(rx0 - bx0, (rx1 - w) - bx0))
+        dy = lerp(uv[i + 1], ry0 - by0, max(ry0 - by0, (ry1 - h) - by0))
+        pts = [{"x": p["x"] + dx, "y": p["y"] + dy} for p in pts]
+        geo = {"shape": shape, "points": pts}
+        if shape == "line":
+            geo["thickness"] = geo0.get("thickness", 0.25)
+
+    if removable and presence < PRESENCE_THRESHOLD:
+        return None
+    return geo
 
 
 def _encode_entry(entry, room):
+    """Inverse of _decode_entry -- the vector that reproduces `geo0`
+    exactly (used by default_u() to build the "original layout" vector).
+    A removable entry always encodes as present (1.0): geo0 is whatever
+    was actually drawn in the file, and the file's own layout should
+    round-trip back to itself, not to "removed"."""
+    vals = _encode_geo(entry, room)
+    return vals + [1.0] if entry.get("removable", False) else vals
+
+def _encode_geo(entry, room):
     geo0, ext = entry["geo0"], entry["extendable"]
     rx0, ry0, rx1, ry1 = room
     shape = geo0["shape"]
@@ -321,43 +433,62 @@ def _encode_entry(entry, room):
     return vals
 
 
-def _fixed_obstacle_bboxes(venue, movable_ids):
-    """Solid fixed things movable furniture must not sit on. Line walls are
-    deliberately excluded: a polyline's bbox is the space it ENCLOSES (the
-    perimeter's bbox is the whole room), and treating it as a block shoved
-    every movable element off the floor plan."""
-    boxes = []
-    for w in venue.get("walls", []):
-        if w["id"] in movable_ids or w.get("shape", "line") == "line":
-            continue
-        boxes.append(list(_shape_bbox(_wall_geo(w))))
-    for z in venue.get("zones", []):
-        if z["id"] in movable_ids or _classify_zone(z) != "obstacle":
-            continue
-        boxes.append(list(_shape_bbox(_zone_geo(z))))
-    return boxes
+def _bbox_overlap(a, b, tol=0.0):
+    """True if two [x0,y0,x1,y1] boxes overlap by more than `tol`. Shared by
+    _resolve_overlaps's own relaxation passes and layout_overlaps()'s hard
+    validity gate below, so "did resolution succeed" and "is this candidate
+    valid" use exactly the same definition of overlap."""
+    return a[0] < b[2] - tol and a[2] > b[0] + tol and a[1] < b[3] - tol and a[3] > b[1] + tol
 
 def _resolve_overlaps(spec, movable):
     """Best-effort: push movable furniture apart (and off fixed obstacles)
     by the smallest axis translation, a few relaxation passes, re-clamping
-    into the room each time. Not a hard guarantee for pathological inputs,
-    but keeps the common case (a handful of rects/circles) overlap-free."""
-    # Zones are AREAS: a column or a riser standing inside the GA floor is
-    # normal, so zones are only kept off other zones. Solid movable walls
-    # (rect/pillar) are kept off fixed solids and each other. Movable LINE
-    # walls are thin barriers -- skipped here, the raster handles them.
-    solids = [e["id"] for e in spec.entries
-              if e["kind"] == "wall" and e["geo0"]["shape"] in ("rect", "circle")]
-    zones = [e["id"] for e in spec.entries if e["kind"] == "zone"]
+    into the room each time. Not a hard guarantee for pathological inputs
+    (see layout_overlaps()'s hard gate, which catches whatever this
+    misses), but resolves the common case (a handful of rects/circles)
+    cleanly.
+
+    Deliberately kind-specific, NOT a fully unified collision group: a
+    movable zone only rivals other zones (movable or fixed), and a movable
+    solid (rect/pillar) wall only rivals other solids (movable or fixed) --
+    NOT the other kind. A pillar drawn inside a zone (a support column in
+    an open floor area -- completely normal) is left exactly where it was
+    decoded; ACTIVELY correcting that relationship here would silently
+    move geometry that was never a decision variable for it, corrupting
+    even `default_u`'s own "reproduce the file exactly" vector (verified:
+    doing this broke `validate_venue.py`'s round-trip check on 3 real
+    venues that happen to draw furniture inside a zone). `layout_overlaps`
+    below (the HARD gate) still checks furniture-vs-zone too, no
+    exceptions -- a venue whose original layout already has one will
+    legitimately show `original` as invalid; this function just isn't the
+    thing that goes and tries to move it. Movable LINE walls are thin
+    barriers -- skipped here, the raster handles them."""
+    all_solids = [e["id"] for e in spec.entries
+                  if e["kind"] == "wall" and e["geo0"]["shape"] in ("rect", "circle")]
+    all_zones = [e["id"] for e in spec.entries if e["kind"] == "zone"]
+    # A removed wall (movable[i] is None, see _decode_entry/REMOVABLE_KINDS)
+    # doesn't exist in this candidate at all -- nothing to push apart, and
+    # it must NOT fall back to being treated as a FIXED obstacle at its
+    # original position either, so it stays excluded from the fixed lists
+    # below via `all_solids`/`all_zones` regardless of presence.
+    solids = [i for i in all_solids if movable.get(i) is not None]
+    zones = [i for i in all_zones if movable.get(i) is not None]
     furniture_ids = solids + zones
     if not furniture_ids:
         return
     boxes = {i: list(_shape_bbox(movable[i])) for i in furniture_ids}
-    fixed = _fixed_obstacle_bboxes(spec.venue, set(furniture_ids))
+    fixed_solid_boxes = [list(_shape_bbox(_wall_geo(w))) for w in spec.venue.get("walls", [])
+                        if w["id"] not in set(all_solids) and w.get("shape", "line") in ("rect", "circle")]
+    # EVERY zone the optimizer isn't moving this candidate -- locked or
+    # simply not a decision variable -- still repels movable zones; not
+    # just "obstacle"-classified ones (a locked "seating"/"bar" zone is
+    # just as real a footprint as a stage).
+    fixed_zone_boxes = [list(_shape_bbox(_zone_geo(z))) for z in spec.venue.get("zones", [])
+                        if z["id"] not in set(all_zones)]
     rx0, ry0, rx1, ry1 = spec.bounds
 
     def overlaps(a, b):
-        return a[0] < b[2] and a[2] > b[0] and a[1] < b[3] and a[3] > b[1]
+        return _bbox_overlap(a, b)
 
     def push(a, b):
         ox = min(a[2], b[2]) - max(a[0], b[0])
@@ -374,10 +505,12 @@ def _resolve_overlaps(spec, movable):
         a[0] = min(max(a[0], rx0), rx1 - w); a[2] = a[0] + w
         a[1] = min(max(a[1], ry0), ry1 - h); a[3] = a[1] + h
 
+    # Everything movable rivals everything fixed, AND everything else
+    # movable -- one unified collision group, no zone/furniture split.
     def rivals(i):
         if i in solids:
-            return fixed + [boxes[j] for j in solids if j != i]
-        return [boxes[j] for j in zones if j != i]
+            return fixed_solid_boxes + [boxes[j] for j in solids if j != i]
+        return fixed_zone_boxes + [boxes[j] for j in zones if j != i]
 
     for _ in range(12):
         moved = False
@@ -437,6 +570,63 @@ def _resolve_overlaps(spec, movable):
             geo["x"], geo["y"], geo["w"], geo["h"] = nx0, ny0, nx1 - nx0, ny1 - ny0
         else:
             _translate_geo(movable[i], nx0 - x0, ny0 - y0)
+
+
+def layout_overlaps(venue, movable, tol=1e-6):
+    """True if ANY two elements overlap at all in the FINAL decoded layout,
+    with one deliberate exception. No exceptions for zone-vs-zone (two
+    purpose-labels can't claim the same square footage) or wall-vs-wall
+    (two solid rect/pillar furniture pieces can't occupy the same
+    footprint), whether the optimizer moved either one or the designer
+    locked both in place. Furniture standing inside a zone IS allowed, but
+    only when that zone is WALKABLE (_classify_zone(z) != "obstacle" --
+    the same rule the editor's isZoneWalkable() and this file's own
+    density rasterization already use: an explicit `walkable` field first,
+    falling back to `stage`/`restricted` blocking by type) -- a column or
+    a riser standing in an open GA floor is a completely normal
+    architectural pattern; furniture inside a NON-walkable zone (a stage,
+    a restricted area -- already an obstacle in its own right) still
+    counts as a real overlap.
+
+    _resolve_overlaps (above) is a best-effort correction, not a
+    guarantee (a room too small for everything at its current size, or 3+
+    mutually overlapping elements, can still leave one unresolved); this
+    is the hard check callers must use to actually enforce the rule --
+    see run_pipeline.py's _candidate_valid, which disqualifies any
+    candidate this returns True for, regardless of how good its cost
+    looks.
+
+    Movable LINE walls (thin dividers/the perimeter) are excluded, same as
+    _resolve_overlaps: a polyline's bbox is the space it ENCLOSES, not a
+    footprint another element could plausibly "stack" on. A REMOVED
+    removable wall (geo is None, see REMOVABLE_KINDS) is skipped too --
+    it doesn't exist in this candidate at all, so nothing for it to
+    overlap.
+
+    Uses each element's axis-aligned bounding box -- the same
+    approximation _resolve_overlaps itself corrects against. A rotated
+    rect's bbox is looser than its true footprint, so this can rarely
+    over-flag a rotated near-miss as overlapping; it never misses a real
+    overlap."""
+    geo = _effective_geo(venue, movable)
+    zones = venue.get("zones", [])
+    zone_boxes = [(_shape_bbox(geo[z["id"]]), _classify_zone(z) != "obstacle") for z in zones]
+    wall_boxes = [_shape_bbox(geo[w["id"]]) for w in venue.get("walls", [])
+                  if w.get("shape", "line") in ("rect", "circle") and geo[w["id"]] is not None]
+
+    for i in range(len(zone_boxes)):
+        for j in range(i + 1, len(zone_boxes)):
+            if _bbox_overlap(zone_boxes[i][0], zone_boxes[j][0], tol):
+                return True
+    for i in range(len(wall_boxes)):
+        for j in range(i + 1, len(wall_boxes)):
+            if _bbox_overlap(wall_boxes[i], wall_boxes[j], tol):
+                return True
+    for wb in wall_boxes:
+        for zb, walkable in zone_boxes:
+            if not walkable and _bbox_overlap(wb, zb, tol):
+                return True
+    return False
 
 
 def unpack(u, venue, spec):
@@ -545,6 +735,8 @@ def _build_obstacle(venue, geo, room, cell=CELL):
 
     for w in venue.get("walls", []):
         g = geo[w["id"]]
+        if g is None:
+            continue   # removed by the optimizer this candidate (REMOVABLE_KINDS) -- no obstacle at all
         if g["shape"] == "rect":
             mark_rect(g["x"], g["y"], g["w"], g["h"])
         elif g["shape"] == "circle":
@@ -727,20 +919,20 @@ def score(venue, u, spec):
     hotspots     = [z for z in venue.get("zones", []) if z.get("type") == "stage"]
 
     def zone_source(z):
-        return (_geo_interior_cells(obstacle, room, geo[z["id"]]), z.get("capacity") or 0)
+        return (_geo_interior_cells(obstacle, room, geo[z["id"]]), _zone_capacity(z, geo[z["id"]]))
 
     def zone_sink(z):
-        cap, stick = z.get("capacity") or 0, z.get("stickiness") or 0
+        cap, stick = _zone_capacity(z, geo[z["id"]]), _zone_stickiness(z)
         rate = cap / (stick * 60.0) if (stick and cap) else 1e9
         return (_geo_ring_cells(obstacle, room, geo[z["id"]]), rate)
 
     def point_source(p):
         g = geo[p["id"]]
-        return (_point_cells(obstacle, room, g["x"], g["y"]), (p.get("flowRate") or DEFAULT_ENTRANCE_FLOW) * SURGE_MINUTES)
+        return (_point_cells(obstacle, room, g["x"], g["y"]), (_throughput(p) or DEFAULT_ENTRANCE_FLOW) * SURGE_MINUTES)
 
     def point_sink(p):
         g = geo[p["id"]]
-        return (_point_cells(obstacle, room, g["x"], g["y"]), (p.get("flowRate") or 1e9) / 60.0)
+        return (_point_cells(obstacle, room, g["x"], g["y"]), (_throughput(p) or 1e9) / 60.0)
 
     scenarios = {}
     if pop_zones and exit_pts:
@@ -864,6 +1056,14 @@ def objective(venue, u, spec, suite=None, horizon=None, dx=None, density_model=N
 
 
 def _apply_geo(venue_copy, element_id, geo):
+    """Writes one decoded geo back into a venue dict, in place -- or, when
+    geo is None (a REMOVABLE element the optimizer decided to drop this
+    candidate, see REMOVABLE_KINDS), deletes it from the venue entirely
+    rather than leaving its original, now-stale geometry behind."""
+    if geo is None:
+        for coll in ("walls", "zones", "points"):
+            venue_copy[coll] = [el for el in venue_copy.get(coll, []) if el["id"] != element_id]
+        return
     for coll in ("walls", "zones", "points"):
         for el in venue_copy.get(coll, []):
             if el["id"] != element_id:

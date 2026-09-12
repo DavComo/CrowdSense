@@ -162,13 +162,26 @@
           </div>
           <div id="density-status" class="panel-hint"></div>
           <button class="btn" id="btn-run-density" style="width:100%; margin-top:4px;">Simulate Density…</button>
+          <div class="prop-row" style="margin-top:8px;">
+            <label for="optimizer-train-samples">Training samples</label>
+            <input type="number" id="optimizer-train-samples" min="20" step="10" value="100" />
+          </div>
           <button class="btn" id="btn-optimize-layout" style="width:100%; margin-top:4px;">Optimize Layout…</button>
           <p class="panel-hint" style="margin-top:2px;">
-            Runs the simulation above and exports the density maps to a
-            folder (as <code>run-&lt;timestamp&gt;/manifest.json</code> +
-            binary frame data) for an external layout optimizer to read —
-            the optimizer itself isn't built yet; this just produces the
-            files it will eventually consume.
+            Runs the layout optimizer (<code>optimizer/</code>): repeatedly
+            re-simulates this venue with movable elements nudged to
+            different positions/sizes (or removed, for movable furniture),
+            trains a small surrogate model on those results, searches
+            through the surrogate for a better layout, then re-verifies the
+            winner on the real simulator before offering to load it — a
+            real, industry-standard excess-density cost (space- and
+            time-integrated, above a Fruin-LoS crowding threshold), not
+            just mean density. "Training samples" is how many of those
+            re-simulations it runs before searching — more is a more
+            thorough search but takes proportionally longer (roughly a
+            minute or two at the default of 100 on a modern machine).
+            Requires a one-time Python setup — see
+            <code>optimizer/SETUP.md</code>.
           </p>
         </section>
 
