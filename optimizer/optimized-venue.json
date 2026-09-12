@@ -1,0 +1,318 @@
+{
+  "version": 1,
+  "meta": {
+    "name": "Sample Club Floor",
+    "unit": "m",
+    "createdAt": "2026-09-11T00:00:00.000Z",
+    "updatedAt": "2026-09-11T00:00:00.000Z"
+  },
+  "scale": {
+    "pixelsPerUnit": 20
+  },
+  "background": null,
+  "walls": [
+    {
+      "id": "wall_perimeter",
+      "shape": "line",
+      "points": [
+        {
+          "x": 0,
+          "y": 0
+        },
+        {
+          "x": 30,
+          "y": 0
+        },
+        {
+          "x": 30,
+          "y": 20
+        },
+        {
+          "x": 0,
+          "y": 20
+        },
+        {
+          "x": 0,
+          "y": 0
+        }
+      ],
+      "thickness": 0.3,
+      "color": "#c9cbd4",
+      "movable": false,
+      "extendable": false
+    },
+    {
+      "id": "wall_divider",
+      "shape": "line",
+      "points": [
+        {
+          "x": 20,
+          "y": 0
+        },
+        {
+          "x": 20,
+          "y": 8
+        }
+      ],
+      "thickness": 0.2,
+      "color": "#c9cbd4",
+      "movable": true,
+      "extendable": true
+    },
+    {
+      "id": "wall_column_1",
+      "shape": "pillar",
+      "cx": 9,
+      "cy": 12,
+      "r": 0.4,
+      "color": "#c9cbd4",
+      "movable": false,
+      "extendable": false
+    },
+    {
+      "id": "wall_riser_1",
+      "shape": "rect",
+      "x": 24,
+      "y": 8,
+      "w": 4,
+      "h": 2,
+      "color": "#c9cbd4",
+      "movable": true,
+      "extendable": true
+    }
+  ],
+  "zones": [
+    {
+      "id": "zone_stage",
+      "type": "stage",
+      "name": "Main Stage",
+      "shape": "rect",
+      "x": 2,
+      "y": 2,
+      "w": 14,
+      "h": 5,
+      "color": "#e0564f",
+      "capacity": null,
+      "stickiness": 20,
+      "movable": false,
+      "extendable": false
+    },
+    {
+      "id": "zone_pit",
+      "type": "seating",
+      "name": "GA Floor",
+      "shape": "rect",
+      "x": 2,
+      "y": 8,
+      "w": 14,
+      "h": 10,
+      "color": "#8b7fe0",
+      "capacity": 500,
+      "stickiness": 8,
+      "movable": true,
+      "extendable": true
+    },
+    {
+      "id": "zone_bar",
+      "type": "bar",
+      "name": "Back Bar",
+      "shape": "rect",
+      "x": 22,
+      "y": 2,
+      "w": 6,
+      "h": 4,
+      "color": "#4f8fd6",
+      "capacity": 20,
+      "stickiness": 12,
+      "movable": true,
+      "extendable": true
+    }
+  ],
+  "points": [
+    {
+      "id": "point_main_entrance",
+      "type": "entrance",
+      "name": "Main Entrance",
+      "x": 8,
+      "y": 20,
+      "flowRate": 120,
+      "color": "#5bb98c",
+      "movable": false
+    },
+    {
+      "id": "point_emergency_exit",
+      "type": "emergency-exit",
+      "name": "Emergency Exit \u2014 East",
+      "x": 30,
+      "y": 12,
+      "flowRate": null,
+      "color": "#e0564f",
+      "movable": false
+    }
+  ],
+  "simulation": {
+    "engine": "placeholder-geometric (arena.py) -- swap for the real solver",
+    "generatedAt": "2026-09-12T01:26:54.659098Z",
+    "before": {
+      "evac_time_s": 261.34455384615393,
+      "peak_pressure": 1.091612325789541
+    },
+    "after": {
+      "evac_time_s": 258.35138461538463,
+      "peak_pressure": 0.5608974358974359
+    },
+    "optimized_venue": {
+      "version": 1,
+      "meta": {
+        "name": "Sample Club Floor",
+        "unit": "m",
+        "createdAt": "2026-09-11T00:00:00.000Z",
+        "updatedAt": "2026-09-11T00:00:00.000Z"
+      },
+      "scale": {
+        "pixelsPerUnit": 20
+      },
+      "background": null,
+      "walls": [
+        {
+          "id": "wall_perimeter",
+          "shape": "line",
+          "points": [
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 30,
+              "y": 0
+            },
+            {
+              "x": 30,
+              "y": 20
+            },
+            {
+              "x": 0,
+              "y": 20
+            },
+            {
+              "x": 0,
+              "y": 0
+            }
+          ],
+          "thickness": 0.3,
+          "color": "#c9cbd4",
+          "movable": false,
+          "extendable": false
+        },
+        {
+          "id": "wall_divider",
+          "shape": "line",
+          "points": [
+            {
+              "x": 19.95818788151704,
+              "y": 0.0
+            },
+            {
+              "x": 19.95818788151704,
+              "y": 2.0
+            }
+          ],
+          "thickness": 0.2,
+          "color": "#c9cbd4",
+          "movable": true,
+          "extendable": true
+        },
+        {
+          "id": "wall_column_1",
+          "shape": "pillar",
+          "cx": 9,
+          "cy": 12,
+          "r": 0.4,
+          "color": "#c9cbd4",
+          "movable": false,
+          "extendable": false
+        },
+        {
+          "id": "wall_riser_1",
+          "shape": "rect",
+          "x": 23.373593988639477,
+          "y": 13.921385435974631,
+          "w": 4.91240976029828,
+          "h": 4.0,
+          "color": "#c9cbd4",
+          "movable": true,
+          "extendable": true
+        }
+      ],
+      "zones": [
+        {
+          "id": "zone_stage",
+          "type": "stage",
+          "name": "Main Stage",
+          "shape": "rect",
+          "x": 2,
+          "y": 2,
+          "w": 14,
+          "h": 5,
+          "color": "#e0564f",
+          "capacity": null,
+          "stickiness": 20,
+          "movable": false,
+          "extendable": false
+        },
+        {
+          "id": "zone_pit",
+          "type": "seating",
+          "name": "GA Floor",
+          "shape": "rect",
+          "x": 0.0,
+          "y": 14.0,
+          "w": 16.0,
+          "h": 6.0,
+          "color": "#8b7fe0",
+          "capacity": 500,
+          "stickiness": 8,
+          "movable": true,
+          "extendable": true
+        },
+        {
+          "id": "zone_bar",
+          "type": "bar",
+          "name": "Back Bar",
+          "shape": "rect",
+          "x": 20.45818788151704,
+          "y": 8.0,
+          "w": 4.853866908987643,
+          "h": 2.0,
+          "color": "#4f8fd6",
+          "capacity": 20,
+          "stickiness": 12,
+          "movable": true,
+          "extendable": true
+        }
+      ],
+      "points": [
+        {
+          "id": "point_main_entrance",
+          "type": "entrance",
+          "name": "Main Entrance",
+          "x": 8,
+          "y": 20,
+          "flowRate": 120,
+          "color": "#5bb98c",
+          "movable": false
+        },
+        {
+          "id": "point_emergency_exit",
+          "type": "emergency-exit",
+          "name": "Emergency Exit \u2014 East",
+          "x": 30,
+          "y": 12,
+          "flowRate": null,
+          "color": "#e0564f",
+          "movable": false
+        }
+      ]
+    }
+  }
+}
