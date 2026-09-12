@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self';" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval';" />
   <title>CrowdSense — Venue Editor</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
@@ -64,8 +64,8 @@
         <button class="tool-btn" data-tool="poly-zone" title="Polygon Zone (G)">
           <span class="icon">⬠</span><span>Polygon Zone</span>
         </button>
-        <button class="tool-btn" data-tool="point" title="Place Point Marker (P)">
-          <span class="icon">📍</span><span>Point</span>
+        <button class="tool-btn" data-tool="point" title="Place Entrance/Exit (P) — snaps onto the nearest fixed wall">
+          <span class="icon">📍</span><span>Entrance/Exit</span>
         </button>
         <div class="tool-sep"></div>
         <button class="tool-btn" data-tool="measure" title="Measure Distance (M)">
@@ -101,11 +101,75 @@
           <label class="layer-row"><input type="checkbox" id="layer-walls" checked /> Walls &amp; obstacles</label>
           <label class="layer-row"><input type="checkbox" id="layer-zones" checked /> Zones</label>
           <label class="layer-row"><input type="checkbox" id="layer-points" checked /> Point markers</label>
+          <label class="layer-row"><input type="checkbox" id="layer-walkability" /> Walkability overlay</label>
 
           <div id="bg-opacity-row" class="field-inline">
             Background opacity
             <input type="range" id="bg-opacity" min="0" max="100" value="60" />
           </div>
+        </section>
+
+        <section id="mask-panel">
+          <h3>Simulation Masks</h3>
+          <p class="panel-hint">
+            Rasterized grids for a crowd-flow simulation. All four share the
+            same grid for a given cell size, so they line up cell-for-cell.
+          </p>
+          <div class="prop-row">
+            <label for="mask-type-select">Mask</label>
+            <select id="mask-type-select">
+              <option value="walkability">Walkability</option>
+              <option value="barrier">Barrier (movable/extendable)</option>
+              <option value="entrance-exit-rate">Entrance/Exit rate</option>
+              <option value="attraction">Attraction</option>
+            </select>
+          </div>
+          <div class="prop-row">
+            <label for="mask-cell-size">Cell size</label>
+            <input type="number" id="mask-cell-size" min="0.02" step="0.05" value="0.25" />
+          </div>
+          <div id="mask-stats" class="panel-hint"></div>
+          <div style="display:flex; gap:6px; margin-top:4px;">
+            <button class="btn" id="btn-debug-mask" style="flex:1;">Debug View…</button>
+            <button class="btn" id="btn-export-mask" style="flex:1;">Export JSON</button>
+          </div>
+        </section>
+
+        <section id="density-panel">
+          <h3>Crowd Simulation</h3>
+          <p class="panel-hint">
+            Runs a crowd-flow simulation over the same masks above and
+            produces a density map for each time step.
+          </p>
+          <div class="prop-row">
+            <label for="density-engine">Engine</label>
+            <select id="density-engine">
+              <option value="agents">Agent-based (textured, per-person)</option>
+              <option value="continuum">Continuum (Hughes model, smooth)</option>
+            </select>
+          </div>
+          <div class="prop-row">
+            <label for="density-max-people">Max people</label>
+            <input type="number" id="density-max-people" min="1" step="1" value="200" />
+          </div>
+          <div class="prop-row">
+            <label for="density-dt">Time step (s)</label>
+            <input type="number" id="density-dt" min="0.01" step="0.05" value="0.2" />
+          </div>
+          <div class="prop-row">
+            <label for="density-total-time">Total time (s)</label>
+            <input type="number" id="density-total-time" min="1" step="5" value="180" />
+          </div>
+          <div id="density-status" class="panel-hint"></div>
+          <button class="btn" id="btn-run-density" style="width:100%; margin-top:4px;">Simulate Density…</button>
+          <button class="btn" id="btn-optimize-layout" style="width:100%; margin-top:4px;">Optimize Layout…</button>
+          <p class="panel-hint" style="margin-top:2px;">
+            Runs the simulation above and exports the density maps to a
+            folder (as <code>run-&lt;timestamp&gt;/manifest.json</code> +
+            binary frame data) for an external layout optimizer to read —
+            the optimizer itself isn't built yet; this just produces the
+            files it will eventually consume.
+          </p>
         </section>
 
         <section id="summary-panel">

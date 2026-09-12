@@ -136,14 +136,49 @@ function migrateVenue(doc) {
     ...doc,
     meta: { ...base.meta, ...doc.meta },
     scale: { ...base.scale, ...doc.scale },
-    // Files saved before a field existed (or hand-edited ones missing one)
-    // get the same defaults a freshly-drawn element would, so the rest of
-    // the app can always rely on every field being present: movable/
-    // extendable, a wall's `shape` (every wall used to just be a line), and
-    // a zone's `stickiness`.
-    walls: (doc.walls ?? []).map((w) => ({ shape: 'line', ...DEFAULT_CONSTRAINTS.wall, ...w })),
-    zones: (doc.zones ?? []).map((z) => ({ stickiness: null, ...DEFAULT_CONSTRAINTS.zone, ...z })),
-    points: (doc.points ?? []).map((p) => ({ ...DEFAULT_CONSTRAINTS.point, ...p })),
+    walls: (doc.walls ?? []).map(migrateWall),
+    zones: (doc.zones ?? []).map(migrateZone),
+    points: (doc.points ?? []).map(migratePoint).filter(Boolean),
     version: FILE_VERSION,
   };
+}
+
+/** Walls: backfill `shape` (every wall used to just be a line) and the
+ * movable/extendable defaults, and give rect walls a `rotation` if an
+ * older file predates that field. */
+function migrateWall(w) {
+  const wall = { shape: 'line', ...DEFAULT_CONSTRAINTS.wall, ...w };
+  if (wall.shape === 'rect' && wall.rotation === undefined) wall.rotation = 0;
+  return wall;
+}
+
+/** Zones dropped every property that isn't aesthetic or mask-facing:
+ * `capacity`/`stickiness`/`movable`/`extendable` are stripped outright
+ * (not just left un-rendered) rather than carried forward as orphaned
+ * dead data with no UI to edit them. `attraction` used to be a 0–10
+ * number; it's boolean now, so an old numeric value becomes `true` if it
+ * was positive. Rect zones get a `rotation` if the file predates it. */
+function migrateZone(z) {
+  const { capacity, stickiness, movable, extendable, attraction, ...rest } = z;
+  const zone = {
+    ...rest,
+    attraction: typeof attraction === 'number' ? attraction > 0 : Boolean(attraction),
+  };
+  if (zone.shape === 'rect' && zone.rotation === undefined) zone.rotation = 0;
+  return zone;
+}
+
+/** Points are entrance/exit only now. `emergency-exit` collapses into
+ * `exit` (same sign in the entrance/exit-rate mask); any other old type
+ * (info/security/custom) has no valid representation left, so those
+ * points are dropped rather than silently mislabeled as an entrance or
+ * exit they never were. `movable` is stripped for the same reason as the
+ * zone constraint fields above. Also migrates the old `flowRate` field
+ * name to `throughput`. Returns null for a point that should be dropped. */
+function migratePoint(p) {
+  const { flowRate, movable, ...rest } = p;
+  let type = p.type;
+  if (type === 'emergency-exit') type = 'exit';
+  else if (type !== 'entrance' && type !== 'exit') return null;
+  return { throughput: flowRate ?? null, ...rest, type };
 }

@@ -15,13 +15,22 @@ export const ZONE_TYPES = {
   custom: { label: 'Custom Zone', color: '#a0a0a8' },
 };
 
+// Zone types that represent an actual physical structure nobody can
+// stand on or in — a raised stage platform, a staff-only area — as
+// opposed to every other type, which just labels a walkable floor area
+// by its purpose (seating/GA floor, a bar counter's service area, a
+// restroom, a merch table). Used only by the density simulator, to
+// decide which zones to treat as obstacles like a wall (see
+// docs/DENSITY_SIMULATION.md) — not by the walkability/mask panel, which
+// keeps its own "zones never block" convention (docs/MASKS.md).
+export const ZONE_BLOCKING_TYPES = new Set(['stage', 'restricted']);
+
+// Points are only ever an entrance or an exit — that's the only distinction
+// the entrance/exit-rate mask cares about (sign: positive for entrance,
+// negative for exit).
 export const POINT_TYPES = {
   entrance: { label: 'Entrance', color: '#5bb98c', glyph: '▲' },
   exit: { label: 'Exit', color: '#d6a24f', glyph: '▼' },
-  'emergency-exit': { label: 'Emergency Exit', color: '#e0564f', glyph: '✖' },
-  info: { label: 'Info / Box Office', color: '#4f8fd6', glyph: '●' },
-  security: { label: 'Security Post', color: '#c94f9a', glyph: '■' },
-  custom: { label: 'Custom Point', color: '#a0a0a8', glyph: '●' },
 };
 
 export const UNITS = {
@@ -29,16 +38,15 @@ export const UNITS = {
   ft: { label: 'feet', abbr: 'ft' },
 };
 
-// Per-element flags the designer sets for the optimization side of the
-// project: `movable` says whether the optimizer may reposition the element
-// at all; `extendable` (walls/zones only — points have no size) says
-// whether it may resize/reshape it. Both are pure metadata — the editor
-// itself also respects them (a locked element can't be dragged here
-// either), but nothing stops a designer from flipping them at any time.
+// `movable`/`extendable` say what the optimizer is allowed to touch — the
+// editor itself also respects them (a locked wall can't be dragged/resized
+// here either). Walls are the only thing that carries these: they're what
+// the barrier mask (docs/MASKS.md) is built from, so they're the only
+// element type where the distinction actually feeds a mask. Zones and
+// points dropped these fields for the same reason they dropped every other
+// property that isn't aesthetic or mask-facing.
 export const DEFAULT_CONSTRAINTS = {
   wall: { movable: false, extendable: false }, // walls default to "permanent structure"
-  zone: { movable: true, extendable: true }, // zones default to "optimizer may rearrange"
-  point: { movable: false }, // entrances/exits default to "fixed building feature"
 };
 
 export function makeId(prefix = 'id') {
@@ -60,8 +68,8 @@ export function createEmptyVenue() {
     // Pixels, at zoom = 1, that represent one real-world unit (meter/foot).
     scale: { pixelsPerUnit: 20 },
     background: null, // { dataUrl, x, y, width, height, opacity }
-    walls: [], // { id, points: [{x,y}...], thickness, color }
-    zones: [], // { id, type, name, shape, ...shapeFields, color, capacity }
-    points: [], // { id, type, name, x, y, flowRate }
+    walls: [], // { id, shape, ...shapeFields, thickness?, color, rotation?, movable, extendable }
+    zones: [], // { id, type, name, shape, ...shapeFields, color, attraction, rotation? }
+    points: [], // { id, type: 'entrance'|'exit', name, x, y, color, throughput }
   };
 }

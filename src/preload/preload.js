@@ -13,6 +13,12 @@ contextBridge.exposeInMainWorld('crowdsense', {
   openImage: () => ipcRenderer.invoke('dialog:open-image'),
   exportPng: (dataUrl, defaultPath) =>
     ipcRenderer.invoke('dialog:export-png', { dataUrl, defaultPath }),
+  exportMask: (contents, defaultPath) =>
+    ipcRenderer.invoke('dialog:export-mask', { contents, defaultPath }),
+  openMaskViewer: (payload) => ipcRenderer.invoke('window:open-mask-viewer', payload),
+  openDensityViewer: (payload) => ipcRenderer.invoke('window:open-density-viewer', payload),
+  chooseExportFolder: () => ipcRenderer.invoke('dialog:choose-export-folder'),
+  exportDensityRun: (rootDir, payload) => ipcRenderer.invoke('export:density-run', { rootDir, payload }),
 
   onMenu: (channel, callback) => {
     const validChannels = [

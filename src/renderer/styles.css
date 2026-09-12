@@ -241,11 +241,18 @@ select, input[type="text"], input[type="number"] {
   color: var(--text-dim);
 }
 
-#properties-panel, #layers-panel, #summary-panel {
+#properties-panel, #layers-panel, #summary-panel, #mask-panel {
   background: var(--bg-2);
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 10px;
+}
+
+.panel-hint {
+  margin: 2px 0 8px;
+  color: var(--text-dim);
+  font-size: 11px;
+  line-height: 1.4;
 }
 
 #properties-content.empty {

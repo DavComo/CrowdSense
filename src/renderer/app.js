@@ -4,6 +4,11 @@ import { InputController } from './canvas/InputController.js';
 import { renderProperties } from './ui/properties.js';
 import { zoneArea } from './canvas/geometry.js';
 import { promptModal, confirmModal } from './ui/modal.js';
+import {
+  computeWalkabilityGrid, computeBarrierMask, computeEntranceExitMask, computeAttractionMask, maskToJSON,
+} from './sim/masks.js';
+import { runDensitySimulation } from './sim/density.js';
+import { runAgentSimulation } from './sim/density-agents.js';
 
 const model = new VenueModel();
 const canvas = document.getElementById('venue-canvas');
@@ -100,6 +105,7 @@ function renderPropertiesPanel(selection) {
       model.removeById(`${sel.kind}s`, sel.id);
       model.commit();
       view.selection = null;
+      view.selectedVertex = null;
       renderPropertiesPanel(null);
       view.render();
       updateSummary();
@@ -117,6 +123,7 @@ const layerCheckboxes = {
   walls: document.getElementById('layer-walls'),
   zones: document.getElementById('layer-zones'),
   points: document.getElementById('layer-points'),
+  walkability: document.getElementById('layer-walkability'),
 };
 for (const [key, el] of Object.entries(layerCheckboxes)) {
   el.addEventListener('change', () => {
@@ -129,6 +136,219 @@ const bgOpacitySlider = document.getElementById('bg-opacity');
 bgOpacitySlider.addEventListener('input', () => {
   view.bgOpacity = Number(bgOpacitySlider.value) / 100;
   view.render();
+});
+
+// ---------------------------------------------------------------------------
+// Simulation masks (walkability, barrier, entrance/exit rate, attraction)
+// ---------------------------------------------------------------------------
+
+function pct(count, total) {
+  return total ? Math.round((count / total) * 100) : 0;
+}
+
+const MASK_TYPES = {
+  walkability: {
+    label: 'Walkability',
+    compute: (cellSize) => computeWalkabilityGrid(model.venue, cellSize),
+    stats: (mask) => `${mask.cols} × ${mask.rows} cells · ${pct(mask.walkableCount, mask.cols * mask.rows)}% walkable`,
+  },
+  barrier: {
+    label: 'Barrier (movable/extendable)',
+    compute: (cellSize) => computeBarrierMask(model.venue, cellSize),
+    stats: (mask) => `${mask.cols} × ${mask.rows} cells · ${mask.barrierCount} editable-barrier cells`,
+  },
+  'entrance-exit-rate': {
+    label: 'Entrance/Exit rate',
+    compute: (cellSize) => computeEntranceExitMask(model.venue, cellSize),
+    stats: (mask) => `${mask.cols} × ${mask.rows} cells · ${mask.openCount} open entrance/exit cell(s)`,
+  },
+  attraction: {
+    label: 'Attraction',
+    compute: (cellSize) => computeAttractionMask(model.venue, cellSize),
+    stats: (mask) => `${mask.cols} × ${mask.rows} cells · ${pct(mask.attractionCount, mask.cols * mask.rows)}% attraction area`,
+  },
+};
+
+const maskTypeSelect = document.getElementById('mask-type-select');
+const maskCellSizeInput = document.getElementById('mask-cell-size');
+const maskStatsEl = document.getElementById('mask-stats');
+
+function currentMaskEntry() {
+  return MASK_TYPES[maskTypeSelect.value];
+}
+
+/** Computes the currently-selected mask, showing a modal (not just the
+ * inline stats line) if it fails — used by the two explicit actions
+ * (debug view / export) where silently doing nothing would be confusing. */
+async function computeCurrentMaskOrWarn() {
+  try {
+    return currentMaskEntry().compute(view.maskCellSize);
+  } catch (err) {
+    await confirmModal({ title: `Can’t compute ${currentMaskEntry().label} mask`, message: err.message });
+    return null;
+  }
+}
+
+function updateMaskStats() {
+  try {
+    maskStatsEl.textContent = currentMaskEntry().stats(currentMaskEntry().compute(view.maskCellSize));
+  } catch (err) {
+    maskStatsEl.textContent = err.message;
+  }
+}
+
+maskTypeSelect.addEventListener('change', updateMaskStats);
+maskCellSizeInput.addEventListener('input', () => {
+  const value = Number(maskCellSizeInput.value);
+  if (!(value > 0)) return;
+  view.maskCellSize = value;
+  view.render(); // in case the walkability canvas overlay is showing
+  updateMaskStats();
+});
+
+document.getElementById('btn-export-mask').addEventListener('click', async () => {
+  const mask = await computeCurrentMaskOrWarn();
+  if (!mask) return;
+  const json = JSON.stringify(maskToJSON(mask, model.venue.meta.name), null, 2);
+  const defaultPath = `${(model.venue.meta.name || 'venue').replace(/[^\w\- ]/g, '')}.${mask.type}.mask.json`;
+  await window.crowdsense.exportMask(json, defaultPath);
+});
+
+document.getElementById('btn-debug-mask').addEventListener('click', async () => {
+  const mask = await computeCurrentMaskOrWarn();
+  if (!mask) return;
+  await window.crowdsense.openMaskViewer({
+    title: `${model.venue.meta.name} — ${currentMaskEntry().label}`,
+    type: mask.type,
+    binary: mask.binary,
+    unit: mask.unit,
+    cellSize: mask.cellSize,
+    originX: mask.originX,
+    originY: mask.originY,
+    cols: mask.cols,
+    rows: mask.rows,
+    grid: Array.from(mask.grid),
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Crowd simulation (density over time)
+// ---------------------------------------------------------------------------
+
+const densityEngineSelect = document.getElementById('density-engine');
+const densityMaxPeopleInput = document.getElementById('density-max-people');
+const densityDtInput = document.getElementById('density-dt');
+const densityTotalTimeInput = document.getElementById('density-total-time');
+const densityStatusEl = document.getElementById('density-status');
+const btnRunDensity = document.getElementById('btn-run-density');
+const btnOptimizeLayout = document.getElementById('btn-optimize-layout');
+
+/** Reads the panel's current inputs and runs a simulation, or returns
+ * null (after showing a modal) if the inputs are invalid. Shared by both
+ * "Simulate Density…" and "Optimize Layout…", which only differ in what
+ * they do with the finished result. */
+async function runPanelSimulation(onProgress) {
+  const maxPeople = Number(densityMaxPeopleInput.value);
+  const dt = Number(densityDtInput.value);
+  const totalTime = Number(densityTotalTimeInput.value);
+
+  if (!(maxPeople > 0) || !(dt > 0) || !(totalTime > 0)) {
+    await confirmModal({ title: 'Invalid simulation parameters', message: 'Max people, time step, and total time must all be positive numbers.' });
+    return null;
+  }
+
+  const engine = densityEngineSelect.value;
+  const runSimulation = engine === 'continuum' ? runDensitySimulation : runAgentSimulation;
+  const result = await runSimulation({
+    venue: model.venue,
+    cellSize: view.maskCellSize,
+    maxPeople,
+    dt,
+    totalTime,
+    onProgress,
+  });
+  return { engine, result };
+}
+
+btnRunDensity.addEventListener('click', async () => {
+  btnRunDensity.disabled = true;
+  btnRunDensity.textContent = 'Simulating…';
+  densityStatusEl.textContent = 'Starting…';
+
+  try {
+    const run = await runPanelSimulation((frac) => {
+      densityStatusEl.textContent = `Simulating… ${Math.round(frac * 100)}%`;
+    });
+    if (!run) return; // invalid inputs — modal already shown
+    const { result } = run;
+
+    densityStatusEl.textContent = result.warnings.length
+      ? result.warnings.join(' ')
+      : `Done — ${result.frames.length} frames, admitted ${result.ledger.admitted.toFixed(0)}, exited ${result.ledger.exited.toFixed(0)}.`;
+
+    // Typed arrays (Float32Array/Uint8Array frames, domainMask, etc.) pass
+    // through Electron's IPC structured clone natively — no Array.from()
+    // conversion needed here, unlike the mask viewer's JSON-export path.
+    await window.crowdsense.openDensityViewer({
+      ...result,
+      title: `${model.venue.meta.name} — Density Simulation`,
+    });
+  } catch (err) {
+    await confirmModal({ title: 'Simulation failed', message: String(err.message || err) });
+    densityStatusEl.textContent = '';
+  } finally {
+    btnRunDensity.disabled = false;
+    btnRunDensity.textContent = 'Simulate Density…';
+  }
+});
+
+// Remembered for the rest of this session so repeated exports (each
+// "Optimize Layout…" click, and eventually each iteration of an actual
+// optimizer loop once one exists) don't re-prompt for a folder every
+// time — only asks again if the user hasn't picked one yet this session.
+let exportRootFolder = null;
+
+btnOptimizeLayout.addEventListener('click', async () => {
+  btnOptimizeLayout.disabled = true;
+  btnOptimizeLayout.textContent = 'Simulating…';
+  densityStatusEl.textContent = 'Starting…';
+
+  try {
+    const run = await runPanelSimulation((frac) => {
+      densityStatusEl.textContent = `Simulating… ${Math.round(frac * 100)}%`;
+    });
+    if (!run) return; // invalid inputs — modal already shown
+    const { engine, result } = run;
+
+    if (!exportRootFolder) {
+      const chosen = await window.crowdsense.chooseExportFolder();
+      if (!chosen) { densityStatusEl.textContent = 'Export canceled.'; return; }
+      exportRootFolder = chosen.folderPath;
+    }
+
+    densityStatusEl.textContent = 'Exporting density maps…';
+    // The optimizer this feeds isn't built yet — this just produces the
+    // files it will eventually read (docs/DENSITY_SIMULATION.md). Typed
+    // arrays pass through IPC as-is, same as openDensityViewer above.
+    const { runDir } = await window.crowdsense.exportDensityRun(exportRootFolder, {
+      ...result,
+      engine,
+      venue: model.venue,
+    });
+
+    densityStatusEl.textContent = `Exported to ${runDir}`;
+
+    await window.crowdsense.openDensityViewer({
+      ...result,
+      title: `${model.venue.meta.name} — Density Simulation`,
+    });
+  } catch (err) {
+    await confirmModal({ title: 'Export failed', message: String(err.message || err) });
+    densityStatusEl.textContent = '';
+  } finally {
+    btnOptimizeLayout.disabled = false;
+    btnOptimizeLayout.textContent = 'Optimize Layout…';
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -211,6 +431,7 @@ function updateScaleReadout() {
 
 function refreshAfterHistoryChange() {
   view.selection = null;
+  view.selectedVertex = null;
   renderPropertiesPanel(null);
   view.render();
   updateSummary();
@@ -225,6 +446,12 @@ document.getElementById('btn-redo').addEventListener('click', () => { model.redo
 document.getElementById('btn-delete').addEventListener('click', deleteSelection);
 
 function deleteSelection() {
+  // A single node clicked (not dragged) on a wall/polygon-zone takes
+  // priority: Delete removes just that vertex, not the whole shape.
+  if (view.selectedVertex) {
+    deleteVertex(view.selectedVertex);
+    return;
+  }
   if (!view.selection) return;
   model.removeById(`${view.selection.kind}s`, view.selection.id);
   model.commit();
@@ -234,9 +461,28 @@ function deleteSelection() {
   updateSummary();
 }
 
+function deleteVertex({ kind, id, index }) {
+  const item = model.find(`${kind}s`, id);
+  view.selectedVertex = null;
+  if (!item?.points) { view.render(); return; }
+
+  item.points.splice(index, 1);
+  // A wall needs at least 2 points (one segment); a polygon needs at
+  // least 3. Drop below that and there's no valid shape left to keep.
+  const minPoints = kind === 'wall' ? 2 : 3;
+  if (item.points.length < minPoints) {
+    model.removeById(`${kind}s`, id);
+    view.selection = null;
+  }
+  model.commit();
+  renderPropertiesPanel(view.selection);
+  view.render();
+  updateSummary();
+}
+
 window.addEventListener('keydown', (e) => {
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
-  if ((e.key === 'Delete' || e.key === 'Backspace') && view.selection) {
+  if ((e.key === 'Delete' || e.key === 'Backspace') && (view.selection || view.selectedVertex)) {
     e.preventDefault();
     deleteSelection();
   }
@@ -411,9 +657,11 @@ model.onChange(() => {
   updateScaleReadout();
   updateSummary();
   updateFileStatus();
+  updateMaskStats();
 });
 updateSummary();
 updateFileStatus();
 updateScaleReadout();
+updateMaskStats();
 setZoomReadout(view.zoom);
 setTool('select');

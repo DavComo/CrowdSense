@@ -74,9 +74,11 @@ function checkboxInput(checked, onChange) {
   return el;
 }
 
-/** Shared "optimization constraints" rows: whether the layout optimizer is
- * allowed to move and/or resize this element. `extendable` is omitted for
- * point markers — they have no size to extend. */
+/** "Optimization constraints" rows: whether the layout optimizer is allowed
+ * to move and/or resize this element. Walls only — they're the only
+ * element type these flags actually drive (the barrier mask, docs/MASKS.md)
+ * since zones/points dropped every property that isn't aesthetic or
+ * mask-facing. */
 function constraintRows(container, item, commitAnd, { includeExtendable }) {
   const hint = document.createElement('p');
   hint.style.cssText = 'margin:2px 0 8px;color:var(--text-dim);font-size:11px;';
@@ -134,10 +136,11 @@ export function renderProperties(container, model, selection, callbacks) {
       item.color = ZONE_TYPES[v].color;
     }))));
     container.appendChild(row('Color', colorInput(item.color || (ZONE_TYPES[item.type] ?? ZONE_TYPES.custom).color, (v) => commitAnd(() => { item.color = v; }))));
-    container.appendChild(row('Capacity (people)', numberInput(item.capacity, (v) => commitAnd(() => { item.capacity = v; }), { min: 0, step: 1, allowNull: true, placeholder: 'not set' })));
-    container.appendChild(row('Stickiness (avg. dwell, min)', numberInput(item.stickiness, (v) => commitAnd(() => { item.stickiness = v; }), { min: 0, step: 0.5, allowNull: true, placeholder: 'not set' })));
+    if (item.shape === 'rect') {
+      container.appendChild(row('Rotation (°)', numberInput(item.rotation ?? 0, (v) => commitAnd(() => { item.rotation = v; }), { step: 1 })));
+    }
+    container.appendChild(row('Attraction', checkboxInput(Boolean(item.attraction), (v) => commitAnd(() => { item.attraction = v; }))));
     container.appendChild(readonlyRow('Area', `${zoneArea(item).toFixed(1)} ${unit}²`));
-    constraintRows(container, item, commitAnd, { includeExtendable: true });
   } else if (selection.kind === 'wall') {
     const shape = item.shape ?? 'line';
     container.appendChild(readonlyRow('Shape', WALL_SHAPE_LABELS[shape] ?? WALL_SHAPE_LABELS.line));
@@ -147,6 +150,7 @@ export function renderProperties(container, model, selection, callbacks) {
       container.appendChild(readonlyRow('Footprint', `${(Math.PI * item.r * item.r).toFixed(2)} ${unit}²`));
     } else if (shape === 'rect') {
       container.appendChild(row('Color', colorInput(item.color || '#c9cbd4', (v) => commitAnd(() => { item.color = v; }))));
+      container.appendChild(row('Rotation (°)', numberInput(item.rotation ?? 0, (v) => commitAnd(() => { item.rotation = v; }), { step: 1 })));
       container.appendChild(readonlyRow('Footprint', `${(Math.abs(item.w) * Math.abs(item.h)).toFixed(2)} ${unit}²`));
     } else {
       container.appendChild(row('Thickness', numberInput(item.thickness, (v) => commitAnd(() => { item.thickness = Math.max(0.02, v); }), { min: 0.02, step: 0.05 })));
@@ -161,10 +165,9 @@ export function renderProperties(container, model, selection, callbacks) {
       item.type = v;
       item.color = POINT_TYPES[v].color;
     }))));
-    container.appendChild(row('Color', colorInput(item.color || (POINT_TYPES[item.type] ?? POINT_TYPES.custom).color, (v) => commitAnd(() => { item.color = v; }))));
-    container.appendChild(row('Flow rate (people/min)', numberInput(item.flowRate, (v) => commitAnd(() => { item.flowRate = v; }), { min: 0, step: 1, allowNull: true, placeholder: 'not set' })));
+    container.appendChild(row('Color', colorInput(item.color || (POINT_TYPES[item.type] ?? POINT_TYPES.entrance).color, (v) => commitAnd(() => { item.color = v; }))));
+    container.appendChild(row('Throughput (people/min)', numberInput(item.throughput, (v) => commitAnd(() => { item.throughput = v; }), { min: 0, step: 1, allowNull: true, placeholder: 'not set' })));
     container.appendChild(readonlyRow('Position', `${item.x.toFixed(2)}, ${item.y.toFixed(2)} ${unit}`));
-    constraintRows(container, item, commitAnd, { includeExtendable: false });
   }
 
   const del = document.createElement('button');

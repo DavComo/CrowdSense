@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self';" />
+  <title>CrowdSense — Density Playback</title>
+  <style>
+    :root {
+      --bg-0: #1a1b1e;
+      --bg-1: #212226;
+      --bg-2: #2a2b30;
+      --border: #3c3d44;
+      --text: #e8e8ea;
+      --text-dim: #9a9ba3;
+      --accent: #4f8fd6;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      height: 100%;
+      background: var(--bg-0);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-size: 13px;
+      user-select: none;
+    }
+    #app { display: flex; flex-direction: column; height: 100vh; }
+    #header {
+      padding: 10px 14px;
+      background: var(--bg-1);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    #title { font-weight: 700; font-size: 14px; }
+    #subtitle { color: var(--text-dim); font-size: 11px; margin-top: 2px; }
+    #warnings { margin-top: 6px; font-size: 11px; color: #f2c94c; }
+    #canvas-wrap {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: auto;
+      background: var(--bg-0);
+    }
+    #density-canvas {
+      image-rendering: pixelated;
+      box-shadow: 0 0 0 1px var(--border);
+    }
+    #empty-state { color: var(--text-dim); font-size: 13px; }
+    #controls {
+      flex-shrink: 0;
+      background: var(--bg-1);
+      border-top: 1px solid var(--border);
+      padding: 10px 14px;
+      display: none;
+      flex-direction: column;
+      gap: 8px;
+    }
+    #scrub-row { display: flex; align-items: center; gap: 10px; }
+    #play-btn {
+      background: var(--accent);
+      border: none;
+      color: #fff;
+      width: 30px;
+      height: 30px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      flex-shrink: 0;
+    }
+    #play-btn:hover { filter: brightness(1.1); }
+    #scrub { flex: 1; }
+    #time-readout {
+      font-variant-numeric: tabular-nums;
+      color: var(--text-dim);
+      width: 150px;
+      text-align: right;
+      flex-shrink: 0;
+      font-size: 12px;
+    }
+    #stats-row {
+      display: flex;
+      gap: 18px;
+      flex-wrap: wrap;
+      font-size: 11px;
+      color: var(--text-dim);
+    }
+    #stats-row b { color: var(--text); font-variant-numeric: tabular-nums; }
+    #legend-row { display: flex; align-items: center; gap: 8px; margin-top: 2px; }
+    #legend-gradient {
+      width: 200px;
+      height: 12px;
+      border-radius: 3px;
+      border: 1px solid var(--border);
+      background: linear-gradient(to right, #1a1b1e, #3b1f6b, #a4226e, #e0564f, #f2c94c, #fff6d9);
+    }
+    #legend-min, #legend-max { font-size: 11px; color: var(--text-dim); }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div id="header">
+      <div id="title">Density Playback</div>
+      <div id="subtitle">Waiting for a simulation…</div>
+      <div id="warnings"></div>
+    </div>
+    <div id="canvas-wrap">
+      <div id="empty-state">Run a simulation from the main window to see it here.</div>
+      <canvas id="density-canvas" style="display:none;"></canvas>
+    </div>
+    <div id="controls">
+      <div id="scrub-row">
+        <button id="play-btn">▶</button>
+        <input type="range" id="scrub" min="0" max="0" value="0" step="1" />
+        <div id="time-readout">t = 0.0 s</div>
+      </div>
+      <div id="legend-row">
+        <span id="legend-min">0</span>
+        <div id="legend-gradient"></div>
+        <span id="legend-max">ρ_max</span>
+        <span style="color:var(--text-dim); margin-left:6px;">people/m² · ⬛ = wall/obstacle</span>
+        <span id="hover-info" style="color:var(--text-dim); margin-left:auto;">Hover the grid for a cell's exact density</span>
+      </div>
+      <div id="stats-row">
+        <span>Admitted: <b id="stat-admitted">—</b></span>
+        <span>Exited: <b id="stat-exited">—</b></span>
+        <span>Clipped: <b id="stat-clipped">—</b></span>
+        <span>Ledger residual: <b id="stat-residual">—</b></span>
+        <span>T95: <b id="stat-t95">—</b></span>
+        <span>Peak density: <b id="stat-peak">—</b></span>
+      </div>
+    </div>
+  </div>
+  <script src="density-viewer.js"></script>
+</body>
+</html>

@@ -61,7 +61,7 @@ would look up by name).
   "movable": false, "extendable": false }
 
 // shape: "rect" — a rectangular obstacle, e.g. a bar counter, riser, or block
-{ "id": "wall_blk1", "shape": "rect", "x": 20, "y": 2, "w": 4, "h": 1.5, "color": "#c9cbd4",
+{ "id": "wall_blk1", "shape": "rect", "x": 20, "y": 2, "w": 4, "h": 1.5, "rotation": 15, "color": "#c9cbd4",
   "movable": true, "extendable": true }
 ```
 
@@ -71,61 +71,80 @@ would look up by name).
   no `shape` field on a wall predates this field entirely — treat it as
   `"line"`, same as the editor does.
 - `shape: "pillar"`: `cx, cy, r` — center and radius, world units.
-- `shape: "rect"`: `x, y, w, h` — top-left + size, world units (`w`/`h`
-  can be negative, same convention as a `rect` zone below).
-- `movable` / `extendable`: see [Optimization constraints](#optimization-constraints-movable--extendable) below. Walls default to `false`/`false` — permanent structure — when drawn in the editor.
+  Rotationally symmetric, so no `rotation` field.
+- `shape: "rect"`: `x, y, w, h` — top-left + size *before* rotation, world
+  units (`w`/`h` can be negative, same convention as a `rect` zone below),
+  plus `rotation` — degrees, clockwise (since `y` is down), applied around
+  the rect's own center. `0` (or a missing field, for files predating
+  rotation) means axis-aligned.
+- `movable` / `extendable`: see [Optimization constraints](#optimization-constraints-movable--extendable) below. Walls default to `false`/`false` — permanent structure — when drawn in the editor. These are the only properties a wall carries beyond its geometry and `color` — no `name`, since a wall is geometry the sim routes around, not a location someone looks up by name.
 
 ## `zones`
 
-Named areas — stage, bar, seating, restricted, etc. — with an optional
-`capacity` your simulation can use as a hard cap.
+Named areas — stage, bar, seating, restricted, etc. Zones carry only
+aesthetic fields and `attraction` (the one zone property a mask actually
+reads — see docs/MASKS.md) — no `capacity`, `stickiness`, `movable`, or
+`extendable`; those were cut since nothing in the mask pipeline used them.
+Zones can't be locked: the optimizer's editable/fixed distinction
+(`movable`/`extendable`) only applies to walls, since only walls feed the
+barrier mask.
 
 ```jsonc
 { "id": "zone_x1", "type": "stage", "name": "Main Stage", "shape": "rect",
-  "x": 5, "y": 2, "w": 12, "h": 6, "color": "#e0564f", "capacity": null, "stickiness": null,
-  "movable": false, "extendable": false }
+  "x": 5, "y": 2, "w": 12, "h": 6, "rotation": 0, "color": "#e0564f", "attraction": true }
 
 { "id": "zone_x2", "type": "seating", "name": "GA Pit", "shape": "circle",
-  "cx": 20, "cy": 15, "r": 8, "color": "#8b7fe0", "capacity": 400, "stickiness": 45,
-  "movable": true, "extendable": true }
+  "cx": 20, "cy": 15, "r": 8, "color": "#8b7fe0", "attraction": false }
 
 { "id": "zone_x3", "type": "restricted", "name": "Backstage", "shape": "polygon",
   "points": [{ "x": 0, "y": 0 }, { "x": 4, "y": 0 }, { "x": 4, "y": 6 }, { "x": 0, "y": 6 }],
-  "color": "#8a8d94", "capacity": null, "movable": false, "extendable": false }
+  "color": "#8a8d94", "attraction": false }
 ```
 
 - `type`: one of `stage`, `bar`, `seating`, `restroom`, `merch`,
   `coat-check`, `restricted`, `custom` — purely descriptive, doesn't
   change behavior. Add your own values freely; the editor will just treat
   an unrecognized type like `custom` for coloring purposes.
-- `shape` is one of `rect` (`x,y,w,h` — top-left + size, `w`/`h` can be
-  negative), `circle` (`cx,cy,r`), or `polygon` (`points[]`, implicitly
-  closed — the editor draws an edge from the last point back to the
-  first).
-- `capacity`: `null` if unset, otherwise a person count.
-- `stickiness`: `null` if unset, otherwise the average number of minutes a
-  visitor lingers at/near this zone once they arrive — a dwell-time hook
-  for crowd simulation (a merch table or a bar tends to hold people longer
-  than a walkway). Purely a number the designer estimates by hand for now;
-  nothing in the editor computes or uses it.
-- `movable` / `extendable`: see below. Zones default to `true`/`true` —
-  the optimizer is free to rearrange them unless a designer locks one down.
+- `shape` is one of `rect` (`x,y,w,h` — top-left + size before rotation,
+  `w`/`h` can be negative, plus `rotation` in degrees around its own
+  center — same convention as a `rect` wall above), `circle` (`cx,cy,r` —
+  rotationally symmetric, no `rotation`), or `polygon` (`points[]`,
+  implicitly closed — the editor draws an edge from the last point back to
+  the first). The editor's rotate handle is currently rect-only; a
+  polygon has no `rotation` field — reshape one by moving its vertices.
+- `attraction`: `true` or `false` — whether people gravitate toward this
+  zone. Purely binary; there's no weighted "how strongly" — that's for a
+  companion field on the simulation side to build directly from the venue
+  file if it needs one.
 
 ## `points`
 
-Single locations — entrances, exits, security posts, etc.
+Entrances and exits — the only two point types. Like zones, a point
+carries only aesthetic fields plus whatever a mask actually reads
+(`throughput`); there's no `movable` since a point's position isn't really
+independent in the first place — see the snapping note below.
 
 ```jsonc
-{ "id": "point_p1", "type": "entrance", "name": "Main Entrance", "x": 5, "y": -2, "flowRate": 180, "color": "#5bb98c",
-  "movable": false }
+{ "id": "point_p1", "type": "entrance", "name": "Main Entrance", "x": 5, "y": -2, "throughput": 180, "color": "#5bb98c" }
 ```
 
-- `type`: one of `entrance`, `exit`, `emergency-exit`, `info`,
-  `security`, `custom`.
-- `flowRate`: `null` if unset, otherwise people/minute — a hook for
-  ingress/egress modeling.
-- `movable`: see below. Points have no `extendable` — there's nothing to
-  resize about a single location. Defaults to `false`.
+- `type`: `entrance` or `exit`. (Older files may have `emergency-exit`,
+  `info`, `security`, or `custom` — the editor migrates `emergency-exit`
+  to `exit` on load, since it's the same sign in the entrance/exit-rate
+  mask, and drops the other, non-entrance/exit types entirely, since
+  they have no valid representation in the reduced schema.)
+- `throughput`: `null` if unset, otherwise people/minute this
+  entrance/exit can pass — a hook for ingress/egress modeling (how fast a
+  crowd can actually get in or out through it). Files saved before this
+  field was named `throughput` used `flowRate` for the same thing; the
+  editor migrates it automatically on load.
+- **Entrances/exits always sit on a wall.** The editor snaps a point's
+  `x`/`y` onto the nearest point of the nearest *fixed* wall (`movable:
+  false` and `extendable: false` — the same walls excluded from the
+  barrier mask) whenever you place or drag one; a real entrance is an
+  opening in a permanent wall, not a location floating in open floor. If a
+  venue has no fixed walls at all, a point just stays wherever it was
+  placed/dragged.
 
 ## `background`
 
@@ -139,26 +158,26 @@ Purely visual — the simulation side can ignore this entirely.
 
 ## Optimization constraints: `movable` / `extendable`
 
-Every wall and zone carries `movable` and `extendable`; every point carries
-just `movable`. These say what the **layout optimizer** is allowed to touch
-when it searches for a better arrangement — not what the human designer can
-do in the editor (a designer can still flip either flag at any time; the
-editor also refuses to drag/resize an element itself while it's locked, as a
-visual double-check that matches what you'll see in the file).
+Walls carry `movable` and `extendable` — the only element type that does,
+since these are what the barrier mask (docs/MASKS.md) is built from, and
+that's the only mask either flag feeds. They say what the **layout
+optimizer** is allowed to touch when it searches for a better arrangement —
+not what the human designer can do in the editor (a designer can still
+flip either flag at any time; the editor also refuses to drag/resize a
+wall itself while it's locked, as a visual double-check that matches what
+you'll see in the file).
 
-- `movable: false` — the optimizer must leave this element's position
-  exactly where the designer put it (e.g. a load-bearing wall, a rigged
-  stage, a fire-code-mandated exit).
+- `movable: false` — the optimizer must leave this wall's position exactly
+  where the designer put it (e.g. a load-bearing wall).
 - `movable: true` — the optimizer may reposition it.
-- `extendable: false` (walls/zones only) — the optimizer must leave its
-  size/shape alone even if it's allowed to move it.
+- `extendable: false` — the optimizer must leave its size/shape alone even
+  if it's allowed to move it.
 - `extendable: true` — the optimizer may resize/reshape it.
 
-A locked element renders in the editor with a 🔒 next to its label (walls
-have no label, so they get a small standalone badge instead — at the
-midpoint for a line wall, the center for a pillar or block) and a dashed
-outline when `extendable: false`, so a glance at the floor plan tells you
-what's fair game before you ever run the optimizer.
+A locked wall renders in the editor with a small 🔒 badge (at the midpoint
+for a line wall, the center for a pillar or block) and a dashed outline
+when `extendable: false`, so a glance at the floor plan tells you what's
+fair game before you ever run the optimizer.
 
 ## Setting real-world scale
 
@@ -173,5 +192,6 @@ size.
 ## Minimal example
 
 See [`examples/sample-venue.json`](../examples/sample-venue.json) for a
-small venue with a couple of walls, a stage, a bar, and two entrances —
-useful as a fixture while building the simulation.
+small venue with a few walls (including a rotated block), a stage, a bar,
+an entrance, and an exit — useful as a fixture while building the
+simulation.
