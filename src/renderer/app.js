@@ -546,12 +546,12 @@ async function importVenue() {
 async function saveVenue(forceDialog = false) {
   const contents = model.toJSON();
   if (model.filePath && !forceDialog) {
-    await window.crowdsense.writeFile(model.filePath, contents);
+    await window.crowdsense.writeVenueFile(model.filePath, contents);
     model.markSaved(model.filePath);
     updateFileStatus();
     return;
   }
-  const defaultPath = `${(model.venue.meta.name || 'venue').replace(/[^\w\- ]/g, '')}.crowdsense.json`;
+  const defaultPath = `${(model.venue.meta.name || 'venue').replace(/[^\w\- ]/g, '')}.venue`;
   const result = await window.crowdsense.saveVenue(contents, defaultPath);
   if (result) {
     model.markSaved(result.filePath);

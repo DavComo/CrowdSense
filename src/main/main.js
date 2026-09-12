@@ -15,6 +15,13 @@ let densityViewerWindow = null;
 /** @type {BrowserWindow | null} */
 let optimizerViewerWindow = null;
 
+// A packaged build gets its icon "for free" (electron-builder embeds
+// build/icon.icns / .ico into the app bundle/exe itself, see package.json's
+// "build" config) — this path is only needed for `npm start`/`--dev`, where
+// nothing has embedded it and the window/dock would otherwise show the
+// generic Electron icon. Not used at all when packaged.
+const DEV_ICON_PATH = path.join(__dirname, '..', '..', 'build', 'icon.png');
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1440,
@@ -22,6 +29,7 @@ function createWindow() {
     minWidth: 1024,
     minHeight: 700,
     backgroundColor: '#1e1f22',
+    ...(app.isPackaged ? {} : { icon: DEV_ICON_PATH }),
     webPreferences: {
       preload: path.join(__dirname, '..', 'preload', 'preload.js'),
       contextIsolation: true,
@@ -143,6 +151,13 @@ function buildMenu() {
 }
 
 app.whenReady().then(() => {
+  // macOS reads the Dock icon from the app bundle once packaged; running
+  // straight from source (`npm start`/`--dev`) has no bundle to read it
+  // from, so the Dock would otherwise show the generic Electron icon.
+  if (!app.isPackaged && process.platform === 'darwin' && app.dock) {
+    app.dock.setIcon(DEV_ICON_PATH);
+  }
+
   buildMenu();
   createWindow();
 
@@ -161,28 +176,61 @@ app.on('window-all-closed', () => {
 // preload bridge, which calls these handlers.
 // ---------------------------------------------------------------------------
 
+// Venue file format: a one-line magic header followed by the venue's usual
+// JSON body (see docs/VENUE_FORMAT.md) — what makes a saved .venue file
+// recognizably "a CrowdSense venue" instead of looking like any other JSON
+// blob, without inventing a real binary format: the body is still exactly
+// the same JSON the editor always produced, so it stays diffable/hand-
+// editable. Only applied at the file-I/O boundary here — VenueModel and
+// everything else in the renderer still just reads/writes plain JSON text
+// and never knows the wrapper exists. The optimizer subprocess is
+// unaffected entirely: it's handed a fresh plain-JSON dump of the in-memory
+// venue over its own temp file (see OPTIMIZER_DIR usage below), never the
+// user's saved file bytes.
+const VENUE_FILE_MAGIC = 'CROWDSENSE_VENUE_FORMAT';
+const VENUE_FILE_VERSION = 1;
+
+function wrapVenueFile(jsonText) {
+  return `${VENUE_FILE_MAGIC} v${VENUE_FILE_VERSION}\n${jsonText}`;
+}
+
+// Old venue files (every .crowdsense.json/.json saved before this format
+// existed, and the optimizer's own re-simulated output under
+// optimizer/data/optimize-runs/) have no header at all — falls back to
+// treating the whole file as plain JSON so those keep opening exactly as
+// they always did.
+function unwrapVenueFile(rawText) {
+  if (rawText.startsWith(VENUE_FILE_MAGIC)) {
+    const newlineIdx = rawText.indexOf('\n');
+    return newlineIdx === -1 ? '{}' : rawText.slice(newlineIdx + 1);
+  }
+  return rawText;
+}
+
 ipcMain.handle('dialog:open-venue', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
     title: 'Import Venue',
     properties: ['openFile'],
-    filters: [{ name: 'CrowdSense Venue', extensions: ['json'] }],
+    filters: [
+      { name: 'CrowdSense Venue', extensions: ['venue', 'crowdsense.json', 'json'] },
+    ],
   });
   if (result.canceled || result.filePaths.length === 0) return null;
 
   const filePath = result.filePaths[0];
-  const contents = await fs.readFile(filePath, 'utf-8');
-  return { filePath, contents };
+  const raw = await fs.readFile(filePath, 'utf-8');
+  return { filePath, contents: unwrapVenueFile(raw) };
 });
 
 ipcMain.handle('dialog:save-venue', async (_event, { contents, defaultPath }) => {
   const result = await dialog.showSaveDialog(mainWindow, {
     title: 'Save Venue',
-    defaultPath: defaultPath || 'venue.crowdsense.json',
-    filters: [{ name: 'CrowdSense Venue', extensions: ['json'] }],
+    defaultPath: defaultPath || 'venue.venue',
+    filters: [{ name: 'CrowdSense Venue', extensions: ['venue'] }],
   });
   if (result.canceled || !result.filePath) return null;
 
-  await fs.writeFile(result.filePath, contents, 'utf-8');
+  await fs.writeFile(result.filePath, wrapVenueFile(contents), 'utf-8');
   return { filePath: result.filePath };
 });
 
@@ -291,8 +339,13 @@ ipcMain.handle('optimizer:apply-venue', async (_event, venue) => {
   return true;
 });
 
-ipcMain.handle('fs:write-file', async (_event, { filePath, contents }) => {
-  await fs.writeFile(filePath, contents, 'utf-8');
+// Used only for the "plain Save" case (a venue that already has a
+// filePath, so there's no dialog round-trip to wrap in) — kept as its own
+// named handler, rather than a fully generic write-file, so it's obvious
+// at a glance that it wraps its contents like the two handlers above and
+// isn't safe to repurpose for writing some other kind of file untouched.
+ipcMain.handle('fs:write-venue-file', async (_event, { filePath, contents }) => {
+  await fs.writeFile(filePath, wrapVenueFile(contents), 'utf-8');
   return true;
 });
 

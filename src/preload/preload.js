@@ -8,8 +8,8 @@ contextBridge.exposeInMainWorld('crowdsense', {
   openVenue: () => ipcRenderer.invoke('dialog:open-venue'),
   saveVenue: (contents, defaultPath) =>
     ipcRenderer.invoke('dialog:save-venue', { contents, defaultPath }),
-  writeFile: (filePath, contents) =>
-    ipcRenderer.invoke('fs:write-file', { filePath, contents }),
+  writeVenueFile: (filePath, contents) =>
+    ipcRenderer.invoke('fs:write-venue-file', { filePath, contents }),
   openImage: () => ipcRenderer.invoke('dialog:open-image'),
   exportPng: (dataUrl, defaultPath) =>
     ipcRenderer.invoke('dialog:export-png', { dataUrl, defaultPath }),

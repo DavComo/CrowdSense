@@ -22,9 +22,10 @@ separate, in-progress piece — see [Where the simulation plugs in](#where-the-s
   then on. A measure tool reports live distances while you work.
 - **Trace over a reference image** — import a photo or scanned floor plan
   as a low-opacity background layer to trace over.
-- **Import / export** — venues save as plain, human-readable
-  `.crowdsense.json` (see [docs/VENUE_FORMAT.md](docs/VENUE_FORMAT.md)),
-  and the canvas exports as a flat PNG.
+- **Import / export** — venues save as `.venue` (a one-line magic header
+  over the same plain, human-readable JSON the format always used — see
+  [docs/VENUE_FORMAT.md](docs/VENUE_FORMAT.md)); older `.crowdsense.json`/
+  `.json` venue files still open fine. The canvas exports as a flat PNG.
 - **Optimization constraints** — mark a wall `movable` and/or `extendable`
   so the layout optimizer knows what it's allowed to rearrange versus
   what's fixed (a load-bearing wall vs. a movable partition). Locked walls
@@ -150,7 +151,7 @@ optimizer/                The layout optimizer (Python) — its own simulator, f
                           surrogate, and search; run_pipeline.py is the entry point
                           "Optimize Layout…" invokes
 optimizer/SETUP.md        One-time Python environment setup for the optimizer
-docs/VENUE_FORMAT.md      The .crowdsense.json schema, written for the sim side
+docs/VENUE_FORMAT.md      The .venue file format (wrapper + JSON schema), for the sim side
 docs/MASKS.md             The four mask types + their *.mask.json export format
 docs/DENSITY_SIMULATION.md The crowd-flow model, its inputs/outputs, and known edge cases
 docs/OPTIMIZER.md         How "Optimize Layout…" works and what it costs a layout on

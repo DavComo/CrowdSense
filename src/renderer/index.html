@@ -10,7 +10,14 @@
   <div id="app">
     <header id="topbar">
       <div class="topbar-group">
-        <span class="brand">CrowdSense</span>
+        <span class="brand">
+          <svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="6" cy="16" r="1.8" fill="currentColor" opacity="0.45"/>
+            <circle cx="12.5" cy="11.5" r="2.4" fill="currentColor" opacity="0.75"/>
+            <circle cx="18.5" cy="7" r="3" fill="currentColor"/>
+          </svg>
+          CrowdSense
+        </span>
         <input id="venue-name" type="text" value="Untitled Venue" spellcheck="false" />
       </div>
 
@@ -24,14 +31,24 @@
         </label>
         <span class="scale-readout" id="scale-readout">1 m = 20 px</span>
         <button class="btn" id="btn-calibrate" title="Draw a line over a known real-world distance to set the scale">
-          📏 Calibrate Scale
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="9" width="18" height="6" rx="1.4" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M7 9v2.4M11 9v2.4M15 9v2.4M19 9v2.4" stroke="currentColor" stroke-width="1.6"/></svg>
+          Calibrate Scale
         </button>
       </div>
 
       <div class="topbar-group">
-        <button class="btn" id="btn-import-bg">🖼️ Import Background</button>
-        <button class="btn" id="btn-import-venue">📂 Import Venue</button>
-        <button class="btn" id="btn-save-venue">💾 Save</button>
+        <button class="btn" id="btn-import-bg">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="8.5" cy="9.5" r="1.5" fill="currentColor"/><path d="M4 16l5-5 4 4 3-3 4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Import Background
+        </button>
+        <button class="btn" id="btn-import-venue">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V7z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+          Import Venue
+        </button>
+        <button class="btn" id="btn-save-venue">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h11l3 3v15H5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M8 3v6h7V3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><rect x="8" y="13" width="8" height="6" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+          Save
+        </button>
         <button class="btn" id="btn-save-venue-as">Save As…</button>
         <button class="btn" id="btn-export-png">Export PNG</button>
       </div>
@@ -40,41 +57,57 @@
     <div id="body">
       <aside id="toolbar">
         <button class="tool-btn active" data-tool="select" title="Select / Move (V)">
-          <span class="icon">↖</span><span>Select</span>
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M5 3v18l4-4.2 2.4 5.6 2.6-1.1-2.4-5.6H17z"/></svg>
+          <span>Select</span>
         </button>
         <button class="tool-btn" data-tool="pan" title="Pan (Space or H)">
-          <span class="icon">✋</span><span>Pan</span>
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2 9 6h2v5H6V9L2 12l4 3v-2h5v5H9l3 4 3-4h-2v-5h5v2l4-3-4-3v2h-5V6h2z"/></svg>
+          <span>Pan</span>
         </button>
         <div class="tool-sep"></div>
         <button class="tool-btn" data-tool="wall" title="Draw Wall (W)">
-          <span class="icon">📏</span><span>Wall</span>
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="10.5" width="18" height="3" rx="1" fill="currentColor"/></svg>
+          <span>Wall</span>
         </button>
         <button class="tool-btn" data-tool="pillar" title="Pillar / column obstacle (I)">
-          <span class="icon">●</span><span>Pillar</span>
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="6" fill="currentColor"/></svg>
+          <span>Pillar</span>
         </button>
         <button class="tool-btn" data-tool="wall-rect" title="Rectangular obstacle / block (B)">
-          <span class="icon">■</span><span>Block</span>
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2.5" fill="currentColor"/></svg>
+          <span>Block</span>
         </button>
         <button class="tool-btn" data-tool="rect-zone" title="Rectangle Zone (R)">
-          <span class="icon">▭</span><span>Rect Zone</span>
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="6" width="16" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-dasharray="3 2.4"/></svg>
+          <span>Rect Zone</span>
         </button>
         <button class="tool-btn" data-tool="circle-zone" title="Circle Zone (C)">
-          <span class="icon">◯</span><span>Circle Zone</span>
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-dasharray="3 2.4"/></svg>
+          <span>Circle Zone</span>
         </button>
         <button class="tool-btn" data-tool="poly-zone" title="Polygon Zone (G)">
-          <span class="icon">⬠</span><span>Polygon Zone</span>
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 20.6 9.2 17.3 19.3 6.7 19.3 3.4 9.2Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-dasharray="3 2.4" stroke-linejoin="round"/></svg>
+          <span>Polygon Zone</span>
         </button>
         <button class="tool-btn" data-tool="point" title="Place Entrance/Exit (P) — snaps onto the nearest fixed wall">
-          <span class="icon">📍</span><span>Entrance/Exit</span>
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21c-4.5-4.8-7-8.2-7-11a7 7 0 0 1 14 0c0 2.8-2.5 6.2-7 11z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><circle cx="12" cy="10" r="2.2" fill="currentColor"/></svg>
+          <span>Entrance/Exit</span>
         </button>
         <div class="tool-sep"></div>
         <button class="tool-btn" data-tool="measure" title="Measure Distance (M)">
-          <span class="icon">📐</span><span>Measure</span>
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><g transform="rotate(45 12 12)"><rect x="3" y="9.5" width="18" height="5" rx="1.4" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M7 9.5v2.4M11 9.5v2.4M15 9.5v2.4M19 9.5v2.4" stroke="currentColor" stroke-width="1.6"/></g></svg>
+          <span>Measure</span>
         </button>
         <div class="tool-sep"></div>
-        <button class="tool-btn icon-only" id="btn-undo" title="Undo (Ctrl+Z)">↺</button>
-        <button class="tool-btn icon-only" id="btn-redo" title="Redo (Ctrl+Shift+Z)">↻</button>
-        <button class="tool-btn icon-only danger" id="btn-delete" title="Delete Selection (Del)">🗑</button>
+        <button class="tool-btn icon-only" id="btn-undo" title="Undo (Ctrl+Z)">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10H17a4 4 0 1 1 0 8h-2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M11 6 7 10l4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <button class="tool-btn icon-only" id="btn-redo" title="Redo (Ctrl+Shift+Z)">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M17 10H7a4 4 0 1 0 0 8h2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M13 6l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <button class="tool-btn icon-only danger" id="btn-delete" title="Delete Selection (Del)">
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M7 7l1 13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1l1-13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M10 11v6M14 11v6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+        </button>
       </aside>
 
       <main id="canvas-wrap">
@@ -129,9 +162,9 @@
             <input type="number" id="mask-cell-size" min="0.02" step="0.05" value="0.25" />
           </div>
           <div id="mask-stats" class="panel-hint"></div>
-          <div style="display:flex; gap:6px; margin-top:4px;">
-            <button class="btn" id="btn-debug-mask" style="flex:1;">Debug View…</button>
-            <button class="btn" id="btn-export-mask" style="flex:1;">Export JSON</button>
+          <div class="btn-row">
+            <button class="btn flex-1" id="btn-debug-mask">Debug View…</button>
+            <button class="btn flex-1" id="btn-export-mask">Export JSON</button>
           </div>
         </section>
 
@@ -161,13 +194,13 @@
             <input type="number" id="density-total-time" min="1" step="5" value="180" />
           </div>
           <div id="density-status" class="panel-hint"></div>
-          <button class="btn" id="btn-run-density" style="width:100%; margin-top:4px;">Simulate Density…</button>
-          <div class="prop-row" style="margin-top:8px;">
+          <button class="btn btn-block" id="btn-run-density">Simulate Density…</button>
+          <div class="prop-row prop-row-spaced">
             <label for="optimizer-train-samples">Training samples</label>
             <input type="number" id="optimizer-train-samples" min="20" step="10" value="100" />
           </div>
-          <button class="btn" id="btn-optimize-layout" style="width:100%; margin-top:4px;">Optimize Layout…</button>
-          <p class="panel-hint" style="margin-top:2px;">
+          <button class="btn btn-block" id="btn-optimize-layout">Optimize Layout…</button>
+          <p class="panel-hint panel-hint-tight">
             Runs the layout optimizer (<code>optimizer/</code>): repeatedly
             re-simulates this venue with movable elements nudged to
             different positions/sizes (or removed, for movable furniture),

@@ -2,9 +2,14 @@
 node_modules/
 dist/
 out/
-build/
 npm-debug.log*
 *.crowdsense.json.bak
+
+# NOTE: build/ is NOT ignored -- unlike a lot of Electron project templates,
+# it's not a generated-output directory here (electron-builder's own output
+# goes to dist/, set via package.json's build.directories.output). It holds
+# the checked-in app icon source (build/icon.icns, build/icon.png) that
+# packaging reads from, so it needs to be tracked.
 
 # Emscripten SDK -- downloaded locally to build the WASM crowd-sim module
 # (see native/BUILD.md); not needed by end users, who get the prebuilt

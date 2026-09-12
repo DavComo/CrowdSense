@@ -1,9 +1,46 @@
-# Venue file format (`.crowdsense.json`)
+# Venue file format (`.venue`)
 
-This is the file the editor imports/exports. It's plain JSON so the
-simulation/optimization side of the project can read and write it without
-touching any Electron/UI code — just parse the file, do math, and either
-write the results into a new field or use the coordinates directly.
+This is the file the editor imports/exports. The content described below
+(everything from `"version"` onward) is plain JSON so the simulation/
+optimization side of the project can read and write it without touching any
+Electron/UI code — just parse it, do math, and either write the results
+into a new field or use the coordinates directly. The optimizer (`optimizer/`)
+in particular never deals with the on-disk wrapper described next at all:
+the editor hands it a fresh plain-JSON dump of the in-memory venue over its
+own temp file every run, not your saved file's actual bytes.
+
+## On-disk wrapper
+
+A saved `.venue` file is one short magic header line, then the venue JSON
+body verbatim:
+
+```
+CROWDSENSE_VENUE_FORMAT v1
+{
+  "version": 1,
+  "meta": { ... },
+  ...
+}
+```
+
+This is what makes a `.venue` file recognizable as "a CrowdSense venue"
+rather than looking like any other JSON blob someone handed you — without
+inventing an actual binary format: strip the first line and the rest is
+exactly the same JSON this document describes, still just as diffable and
+hand-editable as before. `src/main/main.js`'s `wrapVenueFile`/
+`unwrapVenueFile` are the only two places this header is added or removed;
+everything else in the app (`VenueModel`, the simulators, the optimizer)
+only ever sees the plain JSON underneath.
+
+**Reading a `.venue` file from another tool** (Python, a script, anything
+outside the editor): read the file, and if it starts with
+`CROWDSENSE_VENUE_FORMAT`, skip past the first `\n` before calling your JSON
+parser — otherwise (no header at all) parse the whole file as-is. That
+second case is what lets every venue file saved before this wrapper existed
+— `.crowdsense.json`/`.json`, including everything under `examples/` and
+`optimizer/venues/` — keep opening exactly as before: the editor's Import
+Venue dialog accepts `.venue`, `.crowdsense.json`, and plain `.json`
+uniformly, and old files just don't have a header to strip.
 
 ## Coordinate system
 
