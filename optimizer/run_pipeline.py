@@ -38,7 +38,7 @@ VENUE_PATH = next((p for p in _CANDIDATES if os.path.exists(p)), _CANDIDATES[-1]
 # other candidate (see arena.encode_from_venue), never trusted blind. Useful
 # to guarantee a known-working result during a live demo without pretending
 # a number that wasn't actually computed.
-CANNED_OPTIMIZED_PATH = os.path.join(_HERE, "..", "examples", "optimized.json")
+CANNED_OPTIMIZED_PATH = os.path.join(_HERE, "..", "examples", ".optimized.json")
 
 N_TRAIN = int(os.environ.get("CROWDSENSE_N", 420))
 N_TEST = max(int(N_TRAIN * 0.15), 30)
