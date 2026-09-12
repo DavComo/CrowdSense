@@ -1,0 +1,16 @@
+{
+  "name": "crowdsense",
+  "version": "0.1.0",
+  "description": "CrowdSense — venue floor-plan editor for crowd-flow modeling (HackCMU)",
+  "main": "src/main/main.js",
+  "author": "",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev"
+  },
+  "devDependencies": {
+    "electron": "^32.0.0"
+  }
+}

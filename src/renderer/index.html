@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self';" />
+  <title>CrowdSense — Venue Editor</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="app">
+    <header id="topbar">
+      <div class="topbar-group">
+        <span class="brand">CrowdSense</span>
+        <input id="venue-name" type="text" value="Untitled Venue" spellcheck="false" />
+      </div>
+
+      <div class="topbar-group">
+        <label class="field-inline">
+          Unit
+          <select id="unit-select">
+            <option value="m">meters</option>
+            <option value="ft">feet</option>
+          </select>
+        </label>
+        <span class="scale-readout" id="scale-readout">1 m = 20 px</span>
+        <button class="btn" id="btn-calibrate" title="Draw a line over a known real-world distance to set the scale">
+          📏 Calibrate Scale
+        </button>
+      </div>
+
+      <div class="topbar-group">
+        <button class="btn" id="btn-import-bg">🖼️ Import Background</button>
+        <button class="btn" id="btn-import-venue">📂 Import Venue</button>
+        <button class="btn" id="btn-save-venue">💾 Save</button>
+        <button class="btn" id="btn-save-venue-as">Save As…</button>
+        <button class="btn" id="btn-export-png">Export PNG</button>
+      </div>
+    </header>
+
+    <div id="body">
+      <aside id="toolbar">
+        <button class="tool-btn active" data-tool="select" title="Select / Move (V)">
+          <span class="icon">↖</span><span>Select</span>
+        </button>
+        <button class="tool-btn" data-tool="pan" title="Pan (Space or H)">
+          <span class="icon">✋</span><span>Pan</span>
+        </button>
+        <div class="tool-sep"></div>
+        <button class="tool-btn" data-tool="wall" title="Draw Wall (W)">
+          <span class="icon">📏</span><span>Wall</span>
+        </button>
+        <button class="tool-btn" data-tool="pillar" title="Pillar / column obstacle (I)">
+          <span class="icon">●</span><span>Pillar</span>
+        </button>
+        <button class="tool-btn" data-tool="wall-rect" title="Rectangular obstacle / block (B)">
+          <span class="icon">■</span><span>Block</span>
+        </button>
+        <button class="tool-btn" data-tool="rect-zone" title="Rectangle Zone (R)">
+          <span class="icon">▭</span><span>Rect Zone</span>
+        </button>
+        <button class="tool-btn" data-tool="circle-zone" title="Circle Zone (C)">
+          <span class="icon">◯</span><span>Circle Zone</span>
+        </button>
+        <button class="tool-btn" data-tool="poly-zone" title="Polygon Zone (G)">
+          <span class="icon">⬠</span><span>Polygon Zone</span>
+        </button>
+        <button class="tool-btn" data-tool="point" title="Place Point Marker (P)">
+          <span class="icon">📍</span><span>Point</span>
+        </button>
+        <div class="tool-sep"></div>
+        <button class="tool-btn" data-tool="measure" title="Measure Distance (M)">
+          <span class="icon">📐</span><span>Measure</span>
+        </button>
+        <div class="tool-sep"></div>
+        <button class="tool-btn icon-only" id="btn-undo" title="Undo (Ctrl+Z)">↺</button>
+        <button class="tool-btn icon-only" id="btn-redo" title="Redo (Ctrl+Shift+Z)">↻</button>
+        <button class="tool-btn icon-only danger" id="btn-delete" title="Delete Selection (Del)">🗑</button>
+      </aside>
+
+      <main id="canvas-wrap">
+        <canvas id="venue-canvas"></canvas>
+        <div id="hint-bar"></div>
+        <div id="zoom-controls">
+          <button id="zoom-out">−</button>
+          <span id="zoom-readout">100%</span>
+          <button id="zoom-in">+</button>
+          <button id="zoom-fit">Fit</button>
+        </div>
+      </main>
+
+      <aside id="right-panel">
+        <section id="properties-panel">
+          <h3>Properties</h3>
+          <div id="properties-content" class="empty">Nothing selected</div>
+        </section>
+
+        <section id="layers-panel">
+          <h3>Layers</h3>
+          <label class="layer-row"><input type="checkbox" id="layer-background" checked /> Background image</label>
+          <label class="layer-row"><input type="checkbox" id="layer-grid" checked /> Grid</label>
+          <label class="layer-row"><input type="checkbox" id="layer-walls" checked /> Walls &amp; obstacles</label>
+          <label class="layer-row"><input type="checkbox" id="layer-zones" checked /> Zones</label>
+          <label class="layer-row"><input type="checkbox" id="layer-points" checked /> Point markers</label>
+
+          <div id="bg-opacity-row" class="field-inline">
+            Background opacity
+            <input type="range" id="bg-opacity" min="0" max="100" value="60" />
+          </div>
+        </section>
+
+        <section id="summary-panel">
+          <h3>Venue Summary</h3>
+          <dl id="summary-list">
+            <dt>Walls</dt><dd id="summary-walls">0</dd>
+            <dt>Zones</dt><dd id="summary-zones">0</dd>
+            <dt>Points</dt><dd id="summary-points">0</dd>
+            <dt>Zoned area</dt><dd id="summary-area">—</dd>
+          </dl>
+        </section>
+      </aside>
+    </div>
+
+    <footer id="statusbar">
+      <span id="status-tool">Tool: Select</span>
+      <span id="status-coords">—</span>
+      <span id="status-file">Unsaved venue</span>
+    </footer>
+  </div>
+
+  <div id="modal-overlay" class="hidden">
+    <div id="modal-box">
+      <h3 id="modal-title">Title</h3>
+      <p id="modal-message"></p>
+      <input id="modal-input" type="text" />
+      <div id="modal-actions">
+        <button id="modal-cancel" class="btn">Cancel</button>
+        <button id="modal-ok" class="btn primary">OK</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
